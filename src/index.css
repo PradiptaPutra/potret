@@ -1,22 +1,25 @@
 @import "tailwindcss";
 
 :root {
-  --bg-base: #0a0a0f;
-  --bg-surface: #111118;
-  --bg-elevated: #16161f;
-  --bg-hover: #1c1c28;
-  --border-subtle: rgba(255, 255, 255, 0.05);
-  --border-default: rgba(255, 255, 255, 0.10);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --text-primary: rgba(255, 255, 255, 0.95);
+  /* Design A palette — Instrument Panel */
+  --bg-base:     #1a1a1e;
+  --bg-surface:  #141416;
+  --bg-elevated: #1e1e24;
+  --bg-hover:    rgba(255, 255, 255, 0.04);
+  --border-subtle:  rgba(255, 255, 255, 0.04);
+  --border-default: rgba(255, 255, 255, 0.06);
+  --border-strong:  rgba(255, 255, 255, 0.12);
+  --text-primary:   rgba(255, 255, 255, 0.90);
   --text-secondary: rgba(255, 255, 255, 0.55);
-  --text-tertiary: rgba(255, 255, 255, 0.30);
-  --text-muted: rgba(255, 255, 255, 0.18);
-  --accent-violet: #7c3aed;
-  --accent-violet-light: #8b5cf6;
-  --accent-violet-dim: rgba(124, 58, 237, 0.18);
+  --text-tertiary:  rgba(255, 255, 255, 0.28);
+  --text-muted:     rgba(255, 255, 255, 0.16);
+  /* Amber accent (Design A) */
+  --accent:       #f59e0b;
+  --accent-dim:   rgba(245, 158, 11, 0.12);
+  --accent-hover: rgba(245, 158, 11, 0.18);
+  /* Status colours */
   --accent-green: #10b981;
-  --accent-red: #ef4444;
+  --accent-red:   #ef4444;
 }
 
 * {
