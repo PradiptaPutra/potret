@@ -13,38 +13,39 @@ interface Props {
   onClearHistory: () => void;
 }
 
-/* ── Distinct SVG icons per mode ─────────────────────────────────── */
+/* ── Icons — distinct SVG per mode, consistent 1.5px stroke ─────────── */
 const AreaIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-    <line x1="1" y1="7.5" x2="4.5" y2="7.5" />
-    <line x1="10.5" y1="7.5" x2="14" y2="7.5" />
-    <line x1="7.5" y1="1" x2="7.5" y2="4.5" />
-    <line x1="7.5" y1="10.5" x2="7.5" y2="14" />
-    <circle cx="7.5" cy="7.5" r="1.25" />
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+    <circle cx="8" cy="8" r="1.5" />
+    <line x1="8" y1="1.5" x2="8" y2="4.5" />
+    <line x1="8" y1="11.5" x2="8" y2="14.5" />
+    <line x1="1.5" y1="8" x2="4.5" y2="8" />
+    <line x1="11.5" y1="8" x2="14.5" y2="8" />
   </svg>
 );
 
 const WindowIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="1.5" y="2.5" width="12" height="10" rx="1.5" />
-    <line x1="1.5" y1="6" x2="13.5" y2="6" />
-    <circle cx="3.75" cy="4.25" r="0.75" fill="currentColor" stroke="none" />
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+    <line x1="1.5" y1="6.5" x2="14.5" y2="6.5" />
+    <circle cx="3.75" cy="4.5" r="0.75" fill="currentColor" stroke="none" />
+    <circle cx="6"    cy="4.5" r="0.75" fill="currentColor" stroke="none" />
   </svg>
 );
 
 const FullscreenIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="1,4 1,1 4,1" />
-    <polyline points="11,1 14,1 14,4" />
-    <polyline points="14,11 14,14 11,14" />
-    <polyline points="4,14 1,14 1,11" />
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="1,4.5 1,1 4.5,1" />
+    <polyline points="11.5,1 15,1 15,4.5" />
+    <polyline points="15,11.5 15,15 11.5,15" />
+    <polyline points="4.5,15 1,15 1,11.5" />
   </svg>
 );
 
 const modes = [
-  { key: "area" as const,       Icon: AreaIcon,       label: "Area",       desc: "Select a region",   shortcut: "⌘⇧4" },
-  { key: "window" as const,     Icon: WindowIcon,     label: "Window",     desc: "Click any window",  shortcut: "⌘⇧5" },
-  { key: "fullscreen" as const, Icon: FullscreenIcon, label: "Fullscreen", desc: "Entire display",    shortcut: "⌘⇧3" },
+  { key: "area"       as const, Icon: AreaIcon,       label: "Area",       desc: "Select a region",  shortcut: "⌘⇧4" },
+  { key: "window"     as const, Icon: WindowIcon,     label: "Window",     desc: "Click any window", shortcut: "⌘⇧5" },
+  { key: "fullscreen" as const, Icon: FullscreenIcon, label: "Fullscreen", desc: "Entire display",   shortcut: "⌘⇧3" },
 ];
 
 export default function CaptureHome({
@@ -58,42 +59,48 @@ export default function CaptureHome({
   onClearHistory,
 }: Props) {
   return (
-    <div className="flex h-full w-full overflow-hidden" style={{ background: "var(--bg-base)" }}>
-
-      {/* ── SIDEBAR ── */}
+    <div
+      className="flex h-full w-full overflow-hidden"
+      style={{ background: "var(--bg-base)", position: "relative", zIndex: 1 }}
+    >
+      {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
       <aside
-        className="flex flex-col shrink-0"
+        className="glass-panel flex flex-col shrink-0"
         style={{
-          width: 220,
-          background: "var(--bg-surface)",
+          width: 216,
           borderRight: "1px solid var(--border-default)",
         }}
       >
-        {/* App name — compact, no icon (OS titlebar handles branding) */}
+        {/* Brand row */}
         <div
-          className="flex items-center gap-2 px-4 py-3"
-          style={{ borderBottom: "1px solid var(--border-subtle)" }}
+          className="flex items-center gap-2.5 px-4"
+          style={{ height: 44, borderBottom: "1px solid var(--border-subtle)" }}
         >
-          <div
-            style={{
-              width: 8, height: 8, borderRadius: "50%",
-              background: "var(--accent)", flexShrink: 0,
-            }}
-          />
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
+          {/* Amber aperture mark */}
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="7" cy="7" r="6" stroke="#F59E0B" strokeWidth="1.25" />
+            <circle cx="7" cy="7" r="2.5" stroke="#F59E0B" strokeWidth="1.25" />
+            <circle cx="7" cy="7" r="1" fill="#F59E0B" />
+          </svg>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.02em" }}>
             Potret
           </span>
         </div>
 
-        {/* Section label */}
-        <div className="px-4 pt-3 pb-1">
-          <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-muted)" }}>
+        {/* ── Capture section ── */}
+        <div className="px-4 pt-4 pb-1.5">
+          <span style={{
+            fontSize: 9,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.12em",
+            color: "var(--text-muted)",
+          }}>
             Capture
           </span>
         </div>
 
-        {/* Capture mode buttons */}
-        <div className="flex flex-col px-2">
+        <div className="flex flex-col px-2 pb-2">
           {modes.map(({ key, Icon, label, desc, shortcut }) => (
             <CaptureBtn
               key={key}
@@ -107,31 +114,28 @@ export default function CaptureHome({
           ))}
         </div>
 
-        {/* Loading / error status */}
+        {/* Loading / error pill */}
         {(loading || error) && (
-          <div
-            className="mx-3 mt-2 px-2.5 py-2 rounded"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid var(--border-default)" }}
-          >
-            {loading && (
-              <div className="flex items-center gap-1.5" style={{ color: "var(--accent)" }}>
-                <Loader2 style={{ width: 11, height: 11 }} className="animate-spin shrink-0" />
-                <span style={{ fontSize: 11 }}>{loading}</span>
-              </div>
-            )}
-            {error && !loading && (
-              <p style={{ fontSize: 11, color: "var(--accent-red)" }}>{error}</p>
-            )}
+          <div className="mx-3 mb-2">
+            <div
+              className="flex items-center gap-2 px-3 py-2 rounded-lg"
+              style={{
+                background: loading ? "var(--accent-dim)" : "rgba(239,68,68,0.08)",
+                border: `1px solid ${loading ? "var(--accent-border)" : "rgba(239,68,68,0.2)"}`,
+              }}
+            >
+              {loading && <Loader2 style={{ width: 11, height: 11, color: "var(--accent)", flexShrink: 0 }} className="animate-spin" />}
+              <span style={{ fontSize: 11, color: loading ? "var(--accent)" : "var(--accent-red)" }}>
+                {loading ?? error}
+              </span>
+            </div>
           </div>
         )}
 
         <div className="flex-1" />
 
-        {/* Footer */}
-        <div
-          className="px-4 py-3 flex items-center justify-between"
-          style={{ borderTop: "1px solid var(--border-subtle)" }}
-        >
+        {/* ── Divider + footer ── */}
+        <div style={{ borderTop: "1px solid var(--border-subtle)" }} className="px-4 py-3 flex items-center justify-between">
           <span style={{ fontSize: 10, fontFamily: "'SF Mono', 'Menlo', monospace", color: "var(--text-muted)" }}>
             v0.1.0
           </span>
@@ -140,14 +144,16 @@ export default function CaptureHome({
             target="_blank"
             rel="noreferrer"
             style={{ fontSize: 10, color: "var(--text-muted)", textDecoration: "none" }}
+            onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}
           >
             GitHub ↗
           </a>
         </div>
       </aside>
 
-      {/* ── MAIN ── */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      {/* ── MAIN ─────────────────────────────────────────────────────── */}
+      <main className="flex-1 flex flex-col overflow-hidden" style={{ position: "relative", zIndex: 1 }}>
         <HistoryPanel
           items={history}
           onSelect={onSelectHistory}
@@ -161,7 +167,7 @@ export default function CaptureHome({
   );
 }
 
-/* ── Capture button ─────────────────────────────────────────────── */
+/* ── Capture button ─────────────────────────────────────────────────── */
 interface CaptureBtnProps {
   Icon: React.ComponentType;
   label: string;
@@ -176,66 +182,82 @@ function CaptureBtn({ Icon, label, desc, shortcut, disabled, onClick }: CaptureB
     <button
       onClick={onClick}
       disabled={disabled}
-      title={label}
-      className="group relative flex items-center gap-2.5 w-full text-left transition-colors rounded-md
-                 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-      style={{ padding: "8px 10px", background: "transparent", border: "none" }}
+      className="group relative flex items-center gap-2.5 w-full text-left rounded-lg cursor-pointer
+                 disabled:opacity-40 disabled:cursor-not-allowed"
+      style={{
+        padding: "8px 10px",
+        background: "transparent",
+        border: "none",
+        transition: "background 0.15s",
+        marginBottom: 1,
+      }}
     >
-      {/* Amber left accent — hidden until hover via CSS class */}
+      {/* Amber left accent — only on hover via CSS */}
       <div
         className="capture-btn-accent"
         style={{
           position: "absolute",
-          left: 0, top: 6, bottom: 6,
+          left: 0,
+          top: 7,
+          bottom: 7,
           width: 2,
           borderRadius: 2,
           background: "var(--accent)",
           opacity: 0,
-          transition: "opacity 0.1s",
+          transition: "opacity 0.15s",
         }}
       />
 
-      {/* Icon box */}
+      {/* Icon container */}
       <div
-        className="capture-btn-icon flex items-center justify-center shrink-0 rounded"
+        className="capture-btn-icon flex items-center justify-center shrink-0 rounded-lg"
         style={{
-          width: 28, height: 28,
+          width: 30,
+          height: 30,
           background: "rgba(255,255,255,0.04)",
           border: "1px solid rgba(255,255,255,0.07)",
-          color: "rgba(255,255,255,0.4)",
-          transition: "background 0.1s, color 0.1s, border-color 0.1s",
+          color: "rgba(148,163,184,0.6)",
+          transition: "background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s",
         }}
       >
         <Icon />
       </div>
 
-      {/* Text */}
+      {/* Label + description */}
       <div className="flex-1 min-w-0">
-        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)", lineHeight: 1 }}>
+        <div
+          className="capture-btn-label"
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: "rgba(255,255,255,0.75)",
+            lineHeight: 1,
+            transition: "color 0.15s",
+          }}
+        >
           {label}
         </div>
-        <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 3, lineHeight: 1 }}>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3.5, lineHeight: 1 }}>
           {desc}
         </div>
       </div>
 
-      {/* Shortcut — use system font so ⇧ renders properly */}
-      <span
-        style={{
-          flexShrink: 0,
-          fontSize: 10,
-          fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-          color: "var(--text-muted)",
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.07)",
-          borderRadius: 4,
-          padding: "2px 5px",
-          lineHeight: 1.5,
-          letterSpacing: "0.02em",
-        }}
-      >
+      {/* Shortcut badge — system font so ⇧ renders */}
+      <kbd style={{
+        flexShrink: 0,
+        fontSize: 10,
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        fontWeight: 500,
+        color: "var(--text-muted)",
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.07)",
+        borderRadius: 5,
+        padding: "2px 6px",
+        lineHeight: 1.6,
+        letterSpacing: "0.01em",
+      }}>
         {shortcut}
-      </span>
+      </kbd>
     </button>
   );
 }

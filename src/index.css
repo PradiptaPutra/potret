@@ -1,70 +1,131 @@
+/* Inter — ui-ux-pro-max recommended for precision tools */
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap');
+
 @import "tailwindcss";
 
+/* ── Design tokens — "Time amber + night" palette from ui-ux-pro-max ─── */
 :root {
-  /* Design A palette — Instrument Panel */
-  --bg-base:     #1a1a1e;
-  --bg-surface:  #141416;
-  --bg-elevated: #1e1e24;
-  --bg-hover:    rgba(255, 255, 255, 0.04);
+  /* Backgrounds */
+  --bg-base:      #0B0E1C;
+  --bg-surface:   #0D1124;
+  --bg-elevated:  #121A2E;
+  --bg-card:      rgba(16, 23, 40, 0.80);
+
+  /* Borders */
   --border-subtle:  rgba(255, 255, 255, 0.04);
-  --border-default: rgba(255, 255, 255, 0.06);
-  --border-strong:  rgba(255, 255, 255, 0.12);
-  --text-primary:   rgba(255, 255, 255, 0.90);
-  --text-secondary: rgba(255, 255, 255, 0.55);
-  --text-tertiary:  rgba(255, 255, 255, 0.28);
-  --text-muted:     rgba(255, 255, 255, 0.16);
-  /* Amber accent (Design A) */
-  --accent:       #f59e0b;
-  --accent-dim:   rgba(245, 158, 11, 0.12);
-  --accent-hover: rgba(245, 158, 11, 0.18);
-  /* Status colours */
+  --border-default: rgba(255, 255, 255, 0.07);
+  --border-strong:  rgba(255, 255, 255, 0.14);
+
+  /* Text */
+  --text-primary:   rgba(255, 255, 255, 0.92);
+  --text-secondary: #94A3B8;
+  --text-tertiary:  rgba(148, 163, 184, 0.55);
+  --text-muted:     rgba(255, 255, 255, 0.20);
+
+  /* Amber accent */
+  --accent:        #F59E0B;
+  --accent-warm:   #D97706;
+  --accent-dim:    rgba(245, 158, 11, 0.10);
+  --accent-glow:   rgba(245, 158, 11, 0.14);
+  --accent-border: rgba(245, 158, 11, 0.28);
+
+  /* Status */
   --accent-green: #10b981;
   --accent-red:   #ef4444;
 }
 
-* {
+/* ── Reset ── */
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+/* ── Base ── */
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
   background: var(--bg-base);
   color: var(--text-primary);
+  overflow: hidden;
 }
 
-/* Capture button hover — left accent + icon tint */
+/* Ambient amber glow — sits behind sidebar to make glass pop */
+body::before {
+  content: '';
+  position: fixed;
+  top: -20%;
+  left: -15%;
+  width: 55%;
+  height: 90%;
+  background: radial-gradient(ellipse, rgba(245, 158, 11, 0.032) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Subtle top-right glow for depth */
+body::after {
+  content: '';
+  position: fixed;
+  top: -10%;
+  right: -5%;
+  width: 40%;
+  height: 60%;
+  background: radial-gradient(ellipse, rgba(99, 102, 241, 0.02) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Glass panel (sidebar) — ui-ux-pro-max Liquid Glass style ── */
+.glass-panel {
+  background: rgba(10, 13, 24, 0.88);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Capture button hover — CSS-driven per ui-ux-pro-max priority 2 ── */
 button:not(:disabled):hover .capture-btn-accent {
   opacity: 1 !important;
 }
 button:not(:disabled):hover .capture-btn-icon {
   background: var(--accent-dim) !important;
-  border-color: rgba(245, 158, 11, 0.2) !important;
+  border-color: var(--accent-border) !important;
   color: var(--accent) !important;
+  box-shadow: 0 0 14px rgba(245, 158, 11, 0.14) !important;
 }
 button:not(:disabled):hover {
-  background: rgba(255, 255, 255, 0.03) !important;
+  background: rgba(245, 158, 11, 0.038) !important;
+}
+button:not(:disabled):hover .capture-btn-label {
+  color: var(--text-primary) !important;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 2px;
 }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.16); }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.20);
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.07) 37%,
+    rgba(255,255,255,0.04) 63%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease infinite;
 }
