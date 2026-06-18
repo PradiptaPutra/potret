@@ -1,113 +1,269 @@
 import { Camera, Crosshair, AppWindow, Loader2 } from "lucide-react";
+import { HistoryItem } from "../App";
+import HistoryPanel from "./HistoryPanel";
 
 interface Props {
   onCapture: (mode: "fullscreen" | "area" | "window") => void;
   loading: string | null;
   error: string | null;
+  history: HistoryItem[];
+  onDeleteHistory: (id: string) => void;
+  onCopyHistory: (item: HistoryItem) => void;
+  onSelectHistory: (item: HistoryItem) => void;
+  onClearHistory: () => void;
 }
 
 const modes = [
   {
     key: "area" as const,
     icon: Crosshair,
-    label: "Area",
-    desc: "Select a region",
+    label: "Capture Area",
+    desc: "Select a region of your screen",
     shortcut: "⌘⇧4",
   },
   {
     key: "window" as const,
     icon: AppWindow,
-    label: "Window",
-    desc: "Click any window",
+    label: "Capture Window",
+    desc: "Click any window to capture",
     shortcut: "⌘⇧5",
   },
   {
     key: "fullscreen" as const,
     icon: Camera,
     label: "Fullscreen",
-    desc: "Entire display",
+    desc: "Capture the entire display",
     shortcut: "⌘⇧3",
   },
 ];
 
-export default function CaptureHome({ onCapture, loading, error }: Props) {
+export default function CaptureHome({
+  onCapture,
+  loading,
+  error,
+  history,
+  onDeleteHistory,
+  onCopyHistory,
+  onSelectHistory,
+}: Props) {
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-violet-500 flex items-center justify-center">
-            <Camera className="w-4 h-4 text-white" />
+    <div
+      className="flex h-full w-full overflow-hidden"
+      style={{ background: "var(--bg-base)" }}
+    >
+      {/* ── LEFT SIDEBAR ── */}
+      <aside
+        className="flex flex-col shrink-0 overflow-hidden"
+        style={{
+          width: "240px",
+          background: "var(--bg-surface)",
+          borderRight: "1px solid var(--border-default)",
+        }}
+      >
+        {/* Branding */}
+        <div
+          className="flex items-center gap-2.5 px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border-subtle)" }}
+        >
+          <div
+            className="flex items-center justify-center rounded-lg shrink-0"
+            style={{
+              width: "28px",
+              height: "28px",
+              background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+              boxShadow: "0 2px 8px rgba(124,58,237,0.45)",
+            }}
+          >
+            <Camera className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="font-semibold text-white tracking-tight">Potret</span>
-        </div>
-        <span className="text-xs text-white/30">v0.1.0</span>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-8 gap-8">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-white mb-1">
-            Take a screenshot
-          </h1>
-          <p className="text-sm text-white/40">
-            Choose a capture mode to get started
-          </p>
+          <span
+            className="font-semibold tracking-tight"
+            style={{ color: "var(--text-primary)", fontSize: "14px" }}
+          >
+            Potret
+          </span>
         </div>
 
-        {/* Capture mode cards */}
-        <div className="grid grid-cols-3 gap-3 w-full max-w-md">
+        {/* Section label */}
+        <div className="px-5 pt-5 pb-2">
+          <span
+            style={{
+              fontSize: "10px",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              color: "var(--text-muted)",
+            }}
+          >
+            Capture
+          </span>
+        </div>
+
+        {/* Capture mode buttons */}
+        <div className="flex flex-col gap-0.5 px-2">
           {modes.map(({ key, icon: Icon, label, desc, shortcut }) => (
-            <button
+            <CaptureModeButton
               key={key}
-              onClick={() => !loading && onCapture(key)}
+              Icon={Icon}
+              label={label}
+              desc={desc}
+              shortcut={shortcut}
               disabled={!!loading}
-              className="group flex flex-col items-center gap-3 p-5 rounded-xl
-                         bg-white/5 border border-white/10 hover:bg-violet-500/20
-                         hover:border-violet-500/50 transition-all duration-150
-                         disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              <div className="w-10 h-10 rounded-lg bg-white/10 group-hover:bg-violet-500/30
-                              flex items-center justify-center transition-colors">
-                <Icon className="w-5 h-5 text-white/70 group-hover:text-violet-300" />
-              </div>
-              <div className="text-center">
-                <div className="text-sm font-medium text-white">{label}</div>
-                <div className="text-xs text-white/40 mt-0.5">{desc}</div>
-              </div>
-              <span className="text-[10px] text-white/20 font-mono">{shortcut}</span>
-            </button>
+              onClick={() => !loading && onCapture(key)}
+            />
           ))}
         </div>
 
-        {/* Status */}
-        {loading && (
-          <div className="flex items-center gap-2 text-violet-300 text-sm">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            {loading}
+        {/* Status feedback */}
+        {(loading || error) && (
+          <div
+            className="mx-4 mt-3 px-3 py-2.5 rounded-lg"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.07)",
+            }}
+          >
+            {loading && (
+              <div className="flex items-center gap-2" style={{ color: "#8b5cf6" }}>
+                <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                <span style={{ fontSize: "11.5px" }}>{loading}</span>
+              </div>
+            )}
+            {error && !loading && (
+              <p style={{ fontSize: "11.5px", color: "var(--accent-red)" }}>{error}</p>
+            )}
           </div>
         )}
-        {error && !loading && (
-          <div className="text-red-400 text-sm text-center max-w-sm">
-            {error}
-          </div>
-        )}
-      </div>
 
-      {/* Footer */}
-      <div className="px-6 py-3 border-t border-white/10 flex items-center justify-center">
-        <span className="text-xs text-white/20">
-          Open source · MIT License ·{" "}
+        {/* Push footer to bottom */}
+        <div className="flex-1" />
+
+        {/* Footer */}
+        <div
+          className="px-5 py-3 flex items-center justify-between"
+          style={{ borderTop: "1px solid var(--border-subtle)" }}
+        >
+          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>v0.1.0</span>
           <a
-            className="underline text-white/30 hover:text-white/50"
             href="https://github.com/aditpradipta/potret"
             target="_blank"
             rel="noreferrer"
+            style={{
+              fontSize: "10px",
+              color: "var(--text-muted)",
+              textDecoration: "none",
+            }}
+            className="hover:underline"
           >
             GitHub
           </a>
-        </span>
-      </div>
+        </div>
+      </aside>
+
+      {/* ── RIGHT PANEL — history ── */}
+      <main
+        className="flex-1 flex flex-col overflow-hidden"
+        style={{ background: "var(--bg-base)" }}
+      >
+        <HistoryPanel
+          items={history}
+          onSelect={onSelectHistory}
+          onDelete={onDeleteHistory}
+          onCopy={onCopyHistory}
+          loading={false}
+        />
+      </main>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* CaptureModeButton                                                     */
+/* ------------------------------------------------------------------ */
+
+interface CaptureModeButtonProps {
+  Icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  desc: string;
+  shortcut: string;
+  disabled: boolean;
+  onClick: () => void;
+}
+
+function CaptureModeButton({
+  Icon,
+  label,
+  desc,
+  shortcut,
+  disabled,
+  onClick,
+}: CaptureModeButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="group relative flex items-start gap-3 w-full rounded-lg text-left
+                 transition-colors duration-150 cursor-pointer
+                 disabled:opacity-40 disabled:cursor-not-allowed
+                 hover:bg-[rgba(124,58,237,0.15)]"
+      style={{
+        padding: "9px 12px",
+        background: "transparent",
+        border: "none",
+      }}
+    >
+      {/* Violet left-border accent on hover */}
+      <div
+        className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full
+                   opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+        style={{ background: "var(--accent-violet)" }}
+      />
+
+      {/* Icon container */}
+      <div
+        className="flex items-center justify-center rounded-md shrink-0 mt-[1px]"
+        style={{
+          width: "26px",
+          height: "26px",
+          background: "rgba(255,255,255,0.06)",
+          border: "1px solid rgba(255,255,255,0.08)",
+        }}
+      >
+        <Icon className="w-3.5 h-3.5 text-white/50" />
+      </div>
+
+      {/* Label + description */}
+      <div className="flex-1 min-w-0">
+        <div
+          className="font-medium leading-none mb-[5px]"
+          style={{ fontSize: "12.5px", color: "var(--text-primary)" }}
+        >
+          {label}
+        </div>
+        <div
+          className="leading-none truncate"
+          style={{ fontSize: "11px", color: "var(--text-tertiary)" }}
+        >
+          {desc}
+        </div>
+      </div>
+
+      {/* Shortcut badge */}
+      <span
+        className="shrink-0 font-mono"
+        style={{
+          fontSize: "9px",
+          color: "var(--text-muted)",
+          background: "rgba(255,255,255,0.05)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: "4px",
+          padding: "2px 4px",
+          marginTop: "1px",
+          lineHeight: 1.4,
+        }}
+      >
+        {shortcut}
+      </span>
+    </button>
   );
 }

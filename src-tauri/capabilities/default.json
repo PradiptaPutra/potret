@@ -11,6 +11,10 @@
     "fs:default",
     "fs:allow-write-text-file",
     "clipboard-manager:default",
-    "clipboard-manager:allow-write-image"
+    "clipboard-manager:allow-write-image",
+    "global-shortcut:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
   ]
 }

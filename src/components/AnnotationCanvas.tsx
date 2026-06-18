@@ -12,6 +12,7 @@ import {
   Minus,
   Trash2,
   Check,
+  RotateCcw,
 } from "lucide-react";
 import { CaptureData } from "../App";
 
@@ -50,18 +51,18 @@ interface DrawShape {
 }
 
 const COLORS = [
-  "#ef4444", // red
-  "#f97316", // orange
-  "#eab308", // yellow
-  "#22c55e", // green
-  "#3b82f6", // blue
-  "#a855f7", // purple
-  "#ec4899", // pink
-  "#ffffff", // white
-  "#000000", // black
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#3b82f6",
+  "#a855f7",
+  "#ec4899",
+  "#ffffff",
+  "#000000",
 ];
 
-const TOOLS: { key: Tool; icon: any; label: string }[] = [
+const TOOLS: { key: Tool; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
   { key: "pen", icon: Pencil, label: "Pen" },
   { key: "line", icon: Minus, label: "Line" },
   { key: "arrow", icon: ArrowRight, label: "Arrow" },
@@ -91,17 +92,36 @@ export default function AnnotationCanvas({
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Draw all committed shapes onto the base canvas
-  const redrawBase = useCallback(
-    (ctx: CanvasRenderingContext2D, img: HTMLImageElement) => {
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-      ctx.drawImage(img, 0, 0);
-      shapes.forEach((s) => drawShape(ctx, s));
-    },
-    [shapes]
-  );
+  // ── Drawing helpers ──────────────────────────────────────────────────────────
 
-  // Draw a single shape
+  function drawArrow(
+    ctx: CanvasRenderingContext2D,
+    from: Point,
+    to: Point,
+    lw: number
+  ) {
+    const headLen = Math.max(12, lw * 5);
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const angle = Math.atan2(dy, dx);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headLen * Math.cos(angle - Math.PI / 6),
+      to.y - headLen * Math.sin(angle - Math.PI / 6)
+    );
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headLen * Math.cos(angle + Math.PI / 6),
+      to.y - headLen * Math.sin(angle + Math.PI / 6)
+    );
+    ctx.stroke();
+  }
+
   function drawShape(ctx: CanvasRenderingContext2D, s: DrawShape) {
     ctx.save();
     ctx.strokeStyle = s.color;
@@ -150,36 +170,17 @@ export default function AnnotationCanvas({
     ctx.restore();
   }
 
-  function drawArrow(
-    ctx: CanvasRenderingContext2D,
-    from: Point,
-    to: Point,
-    lw: number
-  ) {
-    const headLen = Math.max(12, lw * 5);
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const angle = Math.atan2(dy, dx);
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(to.x, to.y);
-    ctx.lineTo(
-      to.x - headLen * Math.cos(angle - Math.PI / 6),
-      to.y - headLen * Math.sin(angle - Math.PI / 6)
-    );
-    ctx.moveTo(to.x, to.y);
-    ctx.lineTo(
-      to.x - headLen * Math.cos(angle + Math.PI / 6),
-      to.y - headLen * Math.sin(angle + Math.PI / 6)
-    );
-    ctx.stroke();
-  }
-
-  // Load image and draw it
   const imgRef = useRef<HTMLImageElement | null>(null);
+
+  const redrawBase = useCallback(
+    (ctx: CanvasRenderingContext2D, img: HTMLImageElement) => {
+      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+      ctx.drawImage(img, 0, 0);
+      shapes.forEach((s) => drawShape(ctx, s));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shapes]
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -205,6 +206,28 @@ export default function AnnotationCanvas({
     const ctx = canvas.getContext("2d")!;
     redrawBase(ctx, imgRef.current);
   }, [shapes, redrawBase]);
+
+  // ── Global keyboard shortcut listeners ─────────────────────────────────────
+
+  const handleSave = useCallback(async () => {
+    await onSave(canvasRef.current!.toDataURL("image/png"));
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }, [onSave]);
+
+  useEffect(() => {
+    function onUndo() {
+      setShapes((prev) => prev.slice(0, -1));
+    }
+    window.addEventListener("annotation:undo", onUndo);
+    window.addEventListener("annotation:save", handleSave as EventListener);
+    return () => {
+      window.removeEventListener("annotation:undo", onUndo);
+      window.removeEventListener("annotation:save", handleSave as EventListener);
+    };
+  }, [handleSave]);
+
+  // ── Mouse handling ─────────────────────────────────────────────────────────
 
   function getPos(e: React.MouseEvent<HTMLCanvasElement>): Point {
     const canvas = overlayRef.current!;
@@ -261,7 +284,6 @@ export default function AnnotationCanvas({
         return updated;
       });
     } else {
-      // Preview shape
       ctx.save();
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
@@ -350,146 +372,204 @@ export default function AnnotationCanvas({
     setCurrentPoints([]);
   }
 
-  function getExportDataUrl(): string {
-    return canvasRef.current!.toDataURL("image/png");
-  }
-
-  async function handleSave() {
-    await onSave(getExportDataUrl());
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
   async function handleCopy() {
-    await onCopy(getExportDataUrl());
+    await onCopy(canvasRef.current!.toDataURL("image/png"));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
-    <div className="flex flex-col h-full bg-gray-950">
-      {/* Top toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-gray-900 border-b border-white/10 shrink-0">
+    <div className="flex flex-col h-full" style={{ background: "#0d0d14" }}>
+      {/* ── Top toolbar — slim 44px ── */}
+      <div
+        className="flex items-center gap-1.5 px-3 shrink-0"
+        style={{
+          height: "44px",
+          background: "#0d0d14",
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
+        }}
+      >
+        {/* Back */}
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-white/50 hover:text-white text-sm px-2 py-1 rounded transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 rounded-md transition-colors cursor-pointer hover:bg-white/8"
+          style={{
+            padding: "5px 8px",
+            color: "rgba(255,255,255,0.40)",
+            fontSize: "12px",
+            fontWeight: 500,
+            background: "transparent",
+            border: "none",
+          }}
         >
-          <ArrowLeft className="w-4 h-4" />
-          Back
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back</span>
         </button>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div style={{ width: "1px", height: "18px", background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
 
-        {/* Tools */}
-        <div className="flex items-center gap-1">
+        {/* Tool pill group */}
+        <div
+          className="flex items-center gap-0.5 rounded-lg p-0.5"
+          style={{
+            background: "rgba(255,255,255,0.05)",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}
+        >
           {TOOLS.map(({ key, icon: Icon, label }) => (
             <button
               key={key}
               title={label}
               onClick={() => setTool(key)}
-              className={`p-2 rounded-lg transition-colors cursor-pointer ${
-                tool === key
-                  ? "bg-violet-500 text-white"
-                  : "text-white/50 hover:text-white hover:bg-white/10"
-              }`}
+              className="flex items-center justify-center rounded-md transition-all duration-100 cursor-pointer"
+              style={{
+                width: "28px",
+                height: "28px",
+                background: tool === key ? "#7c3aed" : "transparent",
+                border: "none",
+                color: tool === key ? "#fff" : "rgba(255,255,255,0.45)",
+                boxShadow: tool === key ? "0 1px 4px rgba(124,58,237,0.5)" : "none",
+              }}
             >
-              <Icon className="w-4 h-4" />
+              <Icon className="w-3.5 h-3.5" />
             </button>
           ))}
         </div>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div style={{ width: "1px", height: "18px", background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
 
-        {/* Colors */}
+        {/* Color swatches */}
         <div className="flex items-center gap-1">
           {COLORS.map((c) => (
             <button
               key={c}
               onClick={() => setColor(c)}
-              className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 cursor-pointer"
+              title={c}
+              className="rounded-full transition-transform hover:scale-110 cursor-pointer"
               style={{
+                width: "14px",
+                height: "14px",
                 backgroundColor: c,
-                borderColor: color === c ? "white" : "transparent",
+                border: color === c ? "2px solid #8b5cf6" : "2px solid transparent",
+                outline: color === c ? "1px solid rgba(139,92,246,0.4)" : "none",
+                outlineOffset: "1px",
+                padding: 0,
+                flexShrink: 0,
               }}
             />
           ))}
         </div>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div style={{ width: "1px", height: "18px", background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
 
-        {/* Line width */}
+        {/* Stroke size */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-white/30">Size</span>
+          <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.25)", whiteSpace: "nowrap" }}>Size</span>
           <input
             type="range"
             min={1}
             max={12}
             value={lineWidth}
             onChange={(e) => setLineWidth(Number(e.target.value))}
-            className="w-20 accent-violet-500"
+            className="accent-violet-500"
+            style={{ width: "60px" }}
           />
-          <span className="text-xs text-white/40 w-4">{lineWidth}</span>
+          <span
+            className="font-mono tabular-nums"
+            style={{ fontSize: "10px", color: "rgba(255,255,255,0.35)", width: "14px" }}
+          >
+            {lineWidth}
+          </span>
         </div>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <div style={{ width: "1px", height: "18px", background: "rgba(255,255,255,0.08)", flexShrink: 0 }} />
 
-        {/* Undo / Clear */}
+        {/* Undo */}
         <button
           onClick={() => setShapes((prev) => prev.slice(0, -1))}
           disabled={shapes.length === 0}
-          className="text-xs text-white/40 hover:text-white disabled:opacity-20 px-2 py-1 rounded hover:bg-white/10 transition-colors cursor-pointer"
+          title="Undo (⌘Z)"
+          className="flex items-center justify-center rounded-md transition-colors cursor-pointer disabled:opacity-20 hover:bg-white/8"
+          style={{ width: "28px", height: "28px", background: "transparent", border: "none", color: "rgba(255,255,255,0.40)" }}
         >
-          Undo
+          <RotateCcw className="w-3.5 h-3.5" />
         </button>
+
+        {/* Clear */}
         <button
           onClick={() => setShapes([])}
           disabled={shapes.length === 0}
           title="Clear all annotations"
-          className="text-white/40 hover:text-red-400 disabled:opacity-20 p-1.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
+          className="flex items-center justify-center rounded-md transition-colors cursor-pointer disabled:opacity-20 hover:bg-red-500/15 hover:text-red-400"
+          style={{ width: "28px", height: "28px", background: "transparent", border: "none", color: "rgba(255,255,255,0.40)" }}
         >
-          <Trash2 className="w-4 h-4" />
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
 
+        {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Copy & Save */}
+        {/* Copy — ghost style */}
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-sm text-white transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 rounded-lg transition-all duration-150 cursor-pointer hover:bg-white/12"
+          style={{
+            padding: "5px 12px",
+            fontSize: "12px",
+            fontWeight: 500,
+            background: "rgba(255,255,255,0.07)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            color: copied ? "#10b981" : "rgba(255,255,255,0.80)",
+          }}
         >
-          {copied ? (
-            <Check className="w-4 h-4 text-green-400" />
-          ) : (
-            <Copy className="w-4 h-4" />
-          )}
+          {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
           {copied ? "Copied!" : "Copy"}
         </button>
+
+        {/* Save — violet filled */}
         <button
           onClick={handleSave}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm text-white transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 rounded-lg transition-all duration-150 cursor-pointer"
+          style={{
+            padding: "5px 12px",
+            fontSize: "12px",
+            fontWeight: 500,
+            background: saved ? "#059669" : "#7c3aed",
+            border: "none",
+            color: "#fff",
+            boxShadow: saved ? "0 2px 8px rgba(5,150,105,0.4)" : "0 2px 8px rgba(124,58,237,0.45)",
+          }}
         >
-          {saved ? (
-            <Check className="w-4 h-4" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
+          {saved ? <Check className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
           {saved ? "Saved!" : "Save"}
         </button>
       </div>
 
-      {/* Canvas area */}
+      {/* ── Canvas area ── */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto flex items-center justify-center bg-gray-950 p-4"
+        className="flex-1 overflow-auto flex items-center justify-center"
+        style={{ background: "#0d0d14", padding: "24px" }}
       >
-        <div className="relative shadow-2xl">
-          {/* Base canvas: image + committed shapes */}
+        <div
+          className="relative"
+          style={{
+            boxShadow: "0 8px 48px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4)",
+            borderRadius: "2px",
+          }}
+        >
           <canvas
             ref={canvasRef}
-            className="block max-w-full max-h-[calc(100vh-120px)] object-contain"
-            style={{ imageRendering: "auto" }}
+            className="block"
+            style={{
+              maxWidth: "100%",
+              maxHeight: "calc(100vh - 92px)",
+              objectFit: "contain",
+              imageRendering: "auto",
+            }}
           />
-          {/* Overlay canvas: live drawing preview */}
           <canvas
             ref={overlayRef}
             onMouseDown={onMouseDown}
@@ -498,12 +578,7 @@ export default function AnnotationCanvas({
             onMouseLeave={onMouseUp}
             className="absolute inset-0 w-full h-full"
             style={{
-              cursor:
-                tool === "eraser"
-                  ? "cell"
-                  : tool === "text"
-                  ? "text"
-                  : "crosshair",
+              cursor: tool === "eraser" ? "cell" : tool === "text" ? "text" : "crosshair",
             }}
           />
         </div>
