@@ -113,12 +113,11 @@ function App() {
           setCapture(result.screenshot);
           setScreen("annotate");
           showToast("Screenshot captured! Click to annotate.");
-          // Reload history after a successful capture
           await loadHistory();
-        } else {
-          const msg = result.error ?? "Capture failed";
-          setError(msg);
-          showToast(msg, "error");
+        } else if (result.error) {
+          // null error = user cancelled — stay silent
+          setError(result.error);
+          showToast(result.error, "error");
         }
       } catch (e) {
         const msg = String(e);

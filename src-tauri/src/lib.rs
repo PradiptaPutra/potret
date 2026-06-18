@@ -192,10 +192,27 @@ fn capture_with_args(app: &AppHandle, extra_args: &[&str]) -> CaptureResult {
                 },
             }
         }
-        Ok(_) => CaptureResult {
-            success: false,
-            screenshot: None,
-            error: Some("screencapture exited with non-zero status".into()),
+        Ok(_) => {
+            // Non-zero exit — if the file was still written (e.g. partial), use it.
+            // If there's no file, the user cancelled (Escape); treat silently.
+            if tmp.exists() {
+                if let Ok(bytes) = std::fs::read(&tmp) {
+                    let _ = std::fs::remove_file(&tmp);
+                    let _ = save_to_history(app, &bytes);
+                    let data = general_purpose::STANDARD.encode(&bytes);
+                    let (w, h) = image_dimensions(&bytes).unwrap_or((0, 0));
+                    return CaptureResult {
+                        success: true,
+                        screenshot: Some(Screenshot { data, width: w, height: h }),
+                        error: None,
+                    };
+                }
+            }
+            CaptureResult {
+                success: false,
+                screenshot: None,
+                error: None, // silent — user pressed Escape
+            }
         },
         Err(e) => CaptureResult {
             success: false,

@@ -6,10 +6,10 @@
 /* ── Design tokens — "Time amber + night" palette from ui-ux-pro-max ─── */
 :root {
   /* Backgrounds */
-  --bg-base:      #0B0E1C;
-  --bg-surface:   #0D1124;
-  --bg-elevated:  #121A2E;
-  --bg-card:      rgba(16, 23, 40, 0.80);
+  --bg-base:      #0C0F1D;
+  --bg-surface:   #141929;    /* sidebar — noticeably lighter than base */
+  --bg-elevated:  #1A2236;
+  --bg-card:      rgba(20, 28, 46, 0.85);
 
   /* Borders */
   --border-subtle:  rgba(255, 255, 255, 0.04);
@@ -81,9 +81,9 @@ body::after {
 
 /* ── Glass panel (sidebar) — ui-ux-pro-max Liquid Glass style ── */
 .glass-panel {
-  background: rgba(10, 13, 24, 0.88);
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  background: var(--bg-surface);   /* #141929 — clearly distinct from base */
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
   position: relative;
   z-index: 1;
 }
