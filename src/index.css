@@ -37,6 +37,19 @@ body {
   color: var(--text-primary);
 }
 
+/* Capture button hover — left accent + icon tint */
+button:not(:disabled):hover .capture-btn-accent {
+  opacity: 1 !important;
+}
+button:not(:disabled):hover .capture-btn-icon {
+  background: var(--accent-dim) !important;
+  border-color: rgba(245, 158, 11, 0.2) !important;
+  color: var(--accent) !important;
+}
+button:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

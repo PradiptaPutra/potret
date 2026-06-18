@@ -86,21 +86,12 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {header}
-        <div className="flex-1 flex flex-col items-center justify-center gap-4">
-          <div
-            className="flex items-center justify-center rounded-xl"
-            style={{
-              width: 48, height: 48,
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-            }}
-          >
-            <Camera style={{ width: 20, height: 20, color: "var(--text-muted)" }} />
-          </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-2.5">
+          <Camera style={{ width: 22, height: 22, color: "var(--text-muted)", opacity: 0.5 }} />
           <div className="text-center">
-            <p style={{ fontSize: 13, fontWeight: 500, color: "var(--text-tertiary)" }}>No captures yet</p>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
-              Use a capture mode on the left to get started
+            <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-tertiary)" }}>No captures yet</p>
+            <p style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 3 }}>
+              Take a screenshot to get started
             </p>
           </div>
         </div>
