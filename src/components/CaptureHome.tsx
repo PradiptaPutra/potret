@@ -73,8 +73,11 @@ export default function CaptureHome({
       >
         {/* Brand row */}
         <div
-          className="flex items-center gap-2.5 px-4"
-          style={{ height: 44, borderBottom: "1px solid var(--border-subtle)" }}
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            height: 44, padding: "0 20px",
+            borderBottom: "1px solid var(--border-subtle)",
+          }}
         >
           {/* Amber aperture mark */}
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -88,7 +91,7 @@ export default function CaptureHome({
         </div>
 
         {/* ── Capture section ── */}
-        <div className="px-4 pt-4 pb-1.5">
+        <div style={{ padding: "16px 20px 8px" }}>
           <span style={{
             fontSize: 9,
             fontWeight: 700,
@@ -100,7 +103,7 @@ export default function CaptureHome({
           </span>
         </div>
 
-        <div className="flex flex-col px-2 pb-2">
+        <div style={{ display: "flex", flexDirection: "column", padding: "0 10px 8px" }}>
           {modes.map(({ key, Icon, label, desc, shortcut }) => (
             <CaptureBtn
               key={key}
@@ -116,7 +119,7 @@ export default function CaptureHome({
 
         {/* Loading / error pill */}
         {(loading || error) && (
-          <div className="mx-3 mb-2">
+          <div style={{ margin: "0 10px 8px" }}>
             <div
               className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{
@@ -135,7 +138,11 @@ export default function CaptureHome({
         <div className="flex-1" />
 
         {/* ── Divider + footer ── */}
-        <div style={{ borderTop: "1px solid var(--border-subtle)" }} className="px-4 py-3 flex items-center justify-between">
+        <div style={{
+          borderTop: "1px solid var(--border-subtle)",
+          padding: "10px 20px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
           <span style={{ fontSize: 10, fontFamily: "'SF Mono', 'Menlo', monospace", color: "var(--text-muted)" }}>
             v0.1.0
           </span>
@@ -182,24 +189,31 @@ function CaptureBtn({ Icon, label, desc, shortcut, disabled, onClick }: CaptureB
     <button
       onClick={onClick}
       disabled={disabled}
-      className="group relative flex items-center gap-2.5 w-full text-left rounded-lg cursor-pointer
-                 disabled:opacity-40 disabled:cursor-not-allowed"
       style={{
-        padding: "8px 10px",
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        width: "100%",
+        textAlign: "left",
+        borderRadius: 8,
+        padding: "8px 12px",
         background: "transparent",
         border: "none",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.4 : 1,
         transition: "background 0.15s",
-        marginBottom: 1,
+        marginBottom: 2,
       }}
     >
-      {/* Amber left accent — only on hover via CSS */}
+      {/* Amber left accent — inside button, only on hover via CSS */}
       <div
         className="capture-btn-accent"
         style={{
           position: "absolute",
-          left: 0,
-          top: 7,
-          bottom: 7,
+          left: 3,
+          top: 6,
+          bottom: 6,
           width: 2,
           borderRadius: 2,
           background: "var(--accent)",
@@ -210,10 +224,12 @@ function CaptureBtn({ Icon, label, desc, shortcut, disabled, onClick }: CaptureB
 
       {/* Icon container */}
       <div
-        className="capture-btn-icon flex items-center justify-center shrink-0 rounded-lg"
+        className="capture-btn-icon"
         style={{
-          width: 30,
-          height: 30,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0,
+          width: 30, height: 30,
+          borderRadius: 7,
           background: "rgba(255,255,255,0.04)",
           border: "1px solid rgba(255,255,255,0.07)",
           color: "rgba(148,163,184,0.6)",
@@ -224,7 +240,7 @@ function CaptureBtn({ Icon, label, desc, shortcut, disabled, onClick }: CaptureB
       </div>
 
       {/* Label + description */}
-      <div className="flex-1 min-w-0">
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div
           className="capture-btn-label"
           style={{
