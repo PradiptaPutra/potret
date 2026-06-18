@@ -155,7 +155,10 @@ fn capture_with_args(app: &AppHandle, extra_args: &[&str]) -> CaptureResult {
     let mut args: Vec<&str> = extra_args.to_vec();
     args.push(tmp_str.as_str());
 
-    let status = Command::new("screencapture").args(&args).status();
+    let status = Command::new("screencapture")
+        .args(&args)
+        .stderr(std::process::Stdio::null()) // suppress "could not create image from rect" noise
+        .status();
 
     match status {
         Ok(s) if s.success() => {
