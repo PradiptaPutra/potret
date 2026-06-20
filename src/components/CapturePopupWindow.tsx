@@ -128,10 +128,13 @@ export default function CapturePopupWindow() {
     listen<CaptureInfo>("popup-refreshed", (event) => {
       const info = event.payload;
       if (!info || info.captureId < latestCaptureIdRef.current) return;
-      const wasPending = pendingRef.current && pendingCaptureIdRef.current === info.captureId;
       latestCaptureIdRef.current = info.captureId;
       startPending(info.captureId, info);
-      commitCapture(info, !wasPending);
+      // Guarantee the window is visible on every completed capture (shows the loading shell),
+      // then swap in the decoded image. Don't depend on the earlier popup-pending show —
+      // that path could race/be skipped, leaving a saved capture with no popup.
+      showWindow();
+      commitCapture(info, true);
     }).then(fn => { unlisten = fn; });
 
     invoke<CaptureInfo | null>("get_capture_popup_data").then((info) => {
