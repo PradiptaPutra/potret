@@ -4,16 +4,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
 use uuid::Uuid;
-
-#[cfg(target_os = "macos")]
-mod native_capture;
 
 // ---------------------------------------------------------------------------
 // Shared state structs
@@ -124,9 +121,8 @@ fn make_popup_thumb(bytes: &[u8]) -> String {
     general_purpose::STANDARD.encode(bytes)
 }
 
-// 640px = crisp at 2x Retina in a 320px-wide popup window
-// Payload sent to the popup window so it can load the preview immediately (no extra IPC fetch,
-// no Rust-side decode — the webview loads the file via the asset protocol and scales it natively).
+// Payload sent to the popup window so it can render the preview immediately from the event,
+// with no extra IPC round-trip back to the backend.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PopupData {
@@ -160,8 +156,8 @@ fn begin_capture(app: &AppHandle) -> u64 {
     capture_id
 }
 
-// Publishes a unique preview file and refreshes the popup. The native fullscreen path can attach
-// full-resolution bytes later, after its lightweight preview is already visible.
+// Stores the capture in shared state and refreshes the (persistent, hidden) popup window with a
+// base64 thumbnail. `capture_id` guards against an older, slower capture clobbering a newer one.
 fn store_and_open_popup(
     app: &AppHandle,
     popup_path: PathBuf,
@@ -172,7 +168,7 @@ fn store_and_open_popup(
 ) -> bool {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-    // Preview is an inline base64 thumbnail (no asset-protocol file needed). Drop the temp file.
+    // The temp file was only the screencapture output; the popup renders inline base64, so drop it.
     let _ = std::fs::remove_file(&popup_path);
     let thumb = full_bytes.map(make_popup_thumb).unwrap_or_default();
 
@@ -285,16 +281,6 @@ fn emit_popup_pending(app: &AppHandle, capture_id: u64) {
     }
 }
 
-fn log_capture_stage(flow: &str, stage: &str, start: Instant, last: &mut Instant) {
-    let now = Instant::now();
-    eprintln!(
-        "[potret][{flow}] {stage}: +{}ms (total {}ms)",
-        now.duration_since(*last).as_millis(),
-        now.duration_since(start).as_millis()
-    );
-    *last = now;
-}
-
 fn prepare_main_window_for_capture(app: &AppHandle, wait_after_hide: Duration) -> bool {
     let main = app.get_webview_window("main");
     let main_was_visible = main
@@ -325,19 +311,10 @@ fn finalize_capture_and_popup(
     bytes: Vec<u8>,
     width: u32,
     height: u32,
-    flow: &str,
-    start: Instant,
-    last: &mut Instant,
     capture_id: u64,
 ) -> CaptureResult {
-    if store_and_open_popup(app, popup_path, Some(&bytes), width, height, capture_id) {
-        log_capture_stage(flow, "popup refreshed", start, last);
-    } else {
-        log_capture_stage(flow, "stale popup refresh skipped", start, last);
-    }
-
+    store_and_open_popup(app, popup_path, Some(&bytes), width, height, capture_id);
     queue_capture_persistence(app, bytes);
-    log_capture_stage(flow, "history/autosave queued", start, last);
 
     CaptureResult {
         success: true,
@@ -470,94 +447,20 @@ fn save_to_history(app: &AppHandle, bytes: &[u8]) -> Result<HistoryItem, String>
 
 #[tauri::command]
 async fn capture_fullscreen(app: AppHandle) -> CaptureResult {
-    // Plain async command (no spawn_blocking) — running Tauri window ops from a background
-    // thread on macOS can hang. Native ScreenCaptureKit path is disabled (CLI is proven).
     let capture_id = begin_capture(&app);
-    capture_with_args(&app, &["-x"], "fullscreen", capture_id)
-}
-
-#[cfg(target_os = "macos")]
-#[allow(dead_code)]
-fn capture_fullscreen_native(app: &AppHandle, capture_id: u64) -> Result<CaptureResult, String> {
-    let flow = "fullscreen-native";
-    let start = Instant::now();
-    let mut last = start;
-
-    if let Some(popup) = app.get_webview_window("capture-popup") {
-        let _ = popup.hide();
-    }
-    let main_was_visible = prepare_main_window_for_capture(app, Duration::from_millis(24));
-    log_capture_stage(flow, "windows hidden", start, &mut last);
-
-    let preview_app = app.clone();
-    let capture = match native_capture::capture_main_display_png(move |preview| {
-        eprintln!(
-            "[potret][{flow}] ScreenCaptureKit frame: {}ms; ImageIO preview: {}ms",
-            preview.frame_ms, preview.encode_ms
-        );
-        restore_main_window_after_capture(&preview_app, main_was_visible);
-        emit_popup_pending(&preview_app, capture_id);
-
-        let dir = popup_temp_dir();
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let preview_path = dir.join(format!("{}.jpg", Uuid::new_v4()));
-        std::fs::write(&preview_path, &preview.bytes).map_err(|e| e.to_string())?;
-        let _ = store_and_open_popup(
-            &preview_app,
-            preview_path,
-            None,
-            preview.width,
-            preview.height,
-            capture_id,
-        );
-        Ok(())
-    }) {
-        Ok(capture) => capture,
-        Err(error) => {
-            restore_main_window_after_capture(app, main_was_visible);
-            return Err(error);
-        }
-    };
-    eprintln!(
-        "[potret][{flow}] lossless ImageIO PNG completed in {}ms (frame {}ms, {}x{})",
-        capture.encode_ms, capture.frame_ms, capture.width, capture.height
-    );
-    log_capture_stage(flow, "lossless capture encoded", start, &mut last);
-
-    let bytes = capture.bytes;
-    if let Some(state) = app.try_state::<CapturePopupInfo>() {
-        if let Ok(mut data) = state.data.lock() {
-            if data.latest_requested == capture_id {
-                if let Some(snapshot) = data
-                    .snapshot
-                    .as_mut()
-                    .filter(|snapshot| snapshot.capture_id == capture_id)
-                {
-                    snapshot.full = Some(bytes.clone());
-                }
-            }
-        }
-    }
-    queue_capture_persistence(app, bytes);
-    log_capture_stage(flow, "history/autosave queued", start, &mut last);
-
-    Ok(CaptureResult {
-        success: true,
-        screenshot: None,
-        error: None,
-    })
+    capture_with_args(&app, &["-x"], capture_id)
 }
 
 #[tauri::command]
 async fn capture_area(app: AppHandle) -> CaptureResult {
     let capture_id = begin_capture(&app);
-    capture_with_args(&app, &["-x", "-s"], "area-cli", capture_id)
+    capture_with_args(&app, &["-x", "-s"], capture_id)
 }
 
 #[tauri::command]
 async fn capture_window(app: AppHandle) -> CaptureResult {
     let capture_id = begin_capture(&app);
-    capture_with_args(&app, &["-x", "-w"], "window", capture_id)
+    capture_with_args(&app, &["-x", "-w"], capture_id)
 }
 
 // Render the template once, then append -1, -2, … until the path is free (no overwrite).
@@ -583,16 +486,8 @@ fn auto_save_to_path(bytes: &[u8], save_path: &str, config: &AppConfig) -> Resul
     std::fs::write(&path, &out).map_err(|e| e.to_string())
 }
 
-fn capture_with_args(
-    app: &AppHandle,
-    extra_args: &[&str],
-    flow: &str,
-    capture_id: u64,
-) -> CaptureResult {
-    let start = Instant::now();
-    let mut last = start;
-
-    // Capture directly into the popup asset directory to avoid copying the full PNG afterward.
+fn capture_with_args(app: &AppHandle, extra_args: &[&str], capture_id: u64) -> CaptureResult {
+    // Unique temp file per capture so two quick captures can't clobber each other.
     let dir = popup_temp_dir();
     let _ = std::fs::create_dir_all(&dir);
     let tmp = dir.join(format!("{}.png", Uuid::new_v4()));
@@ -605,20 +500,17 @@ fn capture_with_args(
 
     // Hide our own main window so it isn't in the screenshot; restore it afterward.
     let main_was_visible = prepare_main_window_for_capture(app, Duration::from_millis(24));
-    log_capture_stage(flow, "main window hidden", start, &mut last);
 
     let mut args: Vec<&str> = extra_args.to_vec();
     args.push(tmp_str.as_str());
 
-    // screencapture runs the interactive UI and blocks until done
+    // screencapture runs the interactive UI (for -s/-w) and blocks until done.
     let _ = Command::new("screencapture")
         .args(&args)
         .stderr(std::process::Stdio::null())
         .status();
-    log_capture_stage(flow, "screencapture finished", start, &mut last);
 
     restore_main_window_after_capture(app, main_was_visible);
-    log_capture_stage(flow, "main window restored", start, &mut last);
 
     if !tmp.exists() {
         return CaptureResult {
@@ -630,15 +522,11 @@ fn capture_with_args(
 
     // The OS has committed the new image, so the loading shell can no longer be captured.
     emit_popup_pending(app, capture_id);
-    log_capture_stage(flow, "popup pending emitted", start, &mut last);
 
     match std::fs::read(&tmp) {
         Ok(bytes) => {
-            log_capture_stage(flow, "capture file read", start, &mut last);
             let (w, h) = image_dimensions(&bytes).unwrap_or((0, 0));
-            log_capture_stage(flow, "dimensions decoded", start, &mut last);
-
-            finalize_capture_and_popup(app, tmp, bytes, w, h, flow, start, &mut last, capture_id)
+            finalize_capture_and_popup(app, tmp, bytes, w, h, capture_id)
         }
         Err(e) => {
             let _ = std::fs::remove_file(&tmp);
@@ -669,10 +557,6 @@ fn capture_selected_region(
     _dpr: f64,
     capture_id: u64,
 ) -> CaptureResult {
-    let flow = "area-region";
-    let start = Instant::now();
-    let mut last = start;
-
     let rx = x.round().max(0.0) as i32;
     let ry = y.round().max(0.0) as i32;
     let rw = w.round().max(1.0) as i32;
@@ -684,11 +568,11 @@ fn capture_selected_region(
     let tmp = dir.join(format!("{}.png", Uuid::new_v4()));
     let tmp_str = tmp.to_string_lossy().to_string();
 
+    // -R captures only the selected region (no full-screen decode/crop needed)
     let _ = Command::new("screencapture")
         .args(["-x", "-R", rect.as_str(), tmp_str.as_str()])
         .stderr(std::process::Stdio::null())
         .status();
-    log_capture_stage(flow, "screencapture -R finished", start, &mut last);
 
     if !tmp.exists() {
         return CaptureResult {
@@ -700,16 +584,11 @@ fn capture_selected_region(
 
     // Reveal only after screencapture has committed the region, avoiding self-capture.
     emit_popup_pending(app, capture_id);
-    log_capture_stage(flow, "popup pending emitted", start, &mut last);
 
     match std::fs::read(&tmp) {
         Ok(bytes) => {
-            log_capture_stage(flow, "region file read", start, &mut last);
             let (width, height) = image_dimensions(&bytes).unwrap_or((0, 0));
-            log_capture_stage(flow, "dimensions decoded", start, &mut last);
-            finalize_capture_and_popup(
-                app, tmp, bytes, width, height, flow, start, &mut last, capture_id,
-            )
+            finalize_capture_and_popup(app, tmp, bytes, width, height, capture_id)
         }
         Err(e) => {
             let _ = std::fs::remove_file(&tmp);
@@ -1346,31 +1225,22 @@ async fn capture_region_and_crop(
     h: f64,
     dpr: f64,
 ) -> CaptureResult {
-    let start = Instant::now();
-    let mut last = start;
-
     // Hide (not close) the persistent selector window; reset its cursor first so the
     // crosshair doesn't stay stuck on screen after the overlay disappears.
     if let Some(win) = app.get_webview_window("capture-selector") {
         let _ = win.set_cursor_icon(tauri::CursorIcon::Default);
         let _ = win.hide();
     }
-    log_capture_stage("area", "selector hidden", start, &mut last);
-    // Wait for the overlay to clear the compositor before screenshotting
+    // Let the overlay clear the compositor before screenshotting
     tokio::time::sleep(Duration::from_millis(10)).await;
-    log_capture_stage("area", "overlay clear wait complete", start, &mut last);
 
     let result = capture_selected_region(&app, x, y, w, h, dpr, capture_id);
-    log_capture_stage("area", "region capture worker finished", start, &mut last);
-
     if !result.success {
         return result;
     }
 
-    // Tell the main window to reload history and clear capturing state
+    // Tell the main window to reload history
     let _ = app.emit("capture-completed", ());
-    log_capture_stage("area", "capture-completed emitted", start, &mut last);
-
     result
 }
 

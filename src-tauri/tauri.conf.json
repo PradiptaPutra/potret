@@ -27,11 +27,7 @@
       }
     ],
     "security": {
-      "csp": null,
-      "assetProtocol": {
-        "enable": true,
-        "scope": ["$TEMP/**", "$TEMP/potret_popup/**"]
-      }
+      "csp": null
     },
     "macOSPrivateApi": true
   },
