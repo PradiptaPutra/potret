@@ -11,10 +11,12 @@ Potret lives in your menu bar. Take a screenshot and a floating **Quick Access**
 
 ## Screenshots
 
-_Coming soon — captured with Potret itself._ To add them: drop `quick-access.png`,
-`annotate.png`, and `background.png` into [`docs/`](docs/) and uncomment the block below.
+<div align="center">
+  <img src="docs/home.png" width="820" alt="Potret — pick a capture mode from the menu-bar app" />
+</div>
 
 <!--
+  More shots to add (capture them with Potret itself) — drop into docs/ and uncomment:
 <div align="center">
   <img src="docs/quick-access.png" width="640" alt="Quick Access popup" /><br/>
   <img src="docs/annotate.png" width="640" alt="Annotation editor" /><br/>
