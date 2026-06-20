@@ -9,6 +9,19 @@
 
 Potret lives in your menu bar. Take a screenshot and a floating **Quick Access** panel appears so you can copy, save, annotate, pin, drag it out, or drop it onto a beautiful background — without opening a heavy editor.
 
+## Screenshots
+
+_Coming soon — captured with Potret itself._ To add them: drop `quick-access.png`,
+`annotate.png`, and `background.png` into [`docs/`](docs/) and uncomment the block below.
+
+<!--
+<div align="center">
+  <img src="docs/quick-access.png" width="640" alt="Quick Access popup" /><br/>
+  <img src="docs/annotate.png" width="640" alt="Annotation editor" /><br/>
+  <img src="docs/background.png" width="640" alt="Background tool" />
+</div>
+-->
+
 ## Features
 
 - **Capture** — area (drag to select), window (click any window), or fullscreen
