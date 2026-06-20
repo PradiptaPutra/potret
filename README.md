@@ -11,7 +11,7 @@ Potret lives in your menu bar. Take a screenshot and a floating **Quick Access**
 
 ## Download
 
-Grab the latest `.dmg` from the [**Releases**](https://github.com/PradiptaPutra/potret/releases/latest) page, open it, and drag **Potret** to Applications.
+Grab the latest `.dmg` from the [**Releases**](https://github.com/PradiptaPutra/potret/releases/latest) page (universal — runs on **Apple Silicon and Intel**), open it, and drag **Potret** to Applications.
 
 > **First launch (important):** the app isn't notarized by Apple yet, so macOS will say it "can't be opened" or is "damaged." That's expected for an open-source app — to allow it, either:
 > - **Right-click** Potret in Applications → **Open** → **Open**, or

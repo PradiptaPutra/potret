@@ -28,3 +28,7 @@ src-tauri/gen
 *.njsproj
 *.sln
 *.sw?
+
+# Local DMG staging (published to Releases, not committed)
+dist-dmg/
+*.dmg
