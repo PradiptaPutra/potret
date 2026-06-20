@@ -1,23 +1,44 @@
 use base64::{engine::general_purpose, Engine as _};
-use image::imageops::FilterType;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{
-    image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager,
 };
 use uuid::Uuid;
 
+#[cfg(target_os = "macos")]
+mod native_capture;
+
 // ---------------------------------------------------------------------------
 // Shared state structs
 // ---------------------------------------------------------------------------
 
-pub struct AnnotationData {
-    pub data: Mutex<String>,
+pub struct PinnedScreenshots {
+    pub data: Mutex<HashMap<String, String>>, // window_label → base64 PNG
+}
+
+struct CaptureSnapshot {
+    capture_id: u64,
+    data: String, // base64 PNG thumbnail for the popup preview
+    full: Option<Vec<u8>>,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Default)]
+struct CapturePopupState {
+    latest_requested: u64,
+    snapshot: Option<CaptureSnapshot>,
+}
+
+pub struct CapturePopupInfo {
+    data: Mutex<CapturePopupState>,
 }
 
 // ---------------------------------------------------------------------------
@@ -67,26 +88,334 @@ struct HistoryMeta {
 // ---------------------------------------------------------------------------
 
 fn history_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let base = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?;
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let dir = base.join("history");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
 }
 
-fn make_thumbnail(bytes: &[u8]) -> Result<String, String> {
+fn make_thumbnail_bytes(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
-    let thumb = img.resize(200, u32::MAX, FilterType::Lanczos3);
+    // 640px = pixel-perfect at 2× Retina for ~325px-wide history cards
+    let thumb = img.thumbnail(640, u32::MAX);
     let mut buf: Vec<u8> = Vec::new();
     thumb
-        .write_to(
-            &mut std::io::Cursor::new(&mut buf),
-            image::ImageFormat::Png,
-        )
+        .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
-    Ok(general_purpose::STANDARD.encode(&buf))
+    Ok(buf)
+}
+
+fn popup_temp_dir() -> PathBuf {
+    std::env::temp_dir().join("potret_popup")
+}
+
+// 640px base64 PNG for the popup preview — inline data URL (reliable in dev + prod, no asset proto)
+fn make_popup_thumb(bytes: &[u8]) -> String {
+    if let Ok(img) = image::load_from_memory(bytes) {
+        let thumb = img.thumbnail(640, u32::MAX);
+        let mut buf: Vec<u8> = Vec::new();
+        if thumb
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .is_ok()
+        {
+            return general_purpose::STANDARD.encode(&buf);
+        }
+    }
+    general_purpose::STANDARD.encode(bytes)
+}
+
+// 640px = crisp at 2x Retina in a 320px-wide popup window
+// Payload sent to the popup window so it can load the preview immediately (no extra IPC fetch,
+// no Rust-side decode — the webview loads the file via the asset protocol and scales it natively).
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PopupData {
+    capture_id: u64,
+    data: String, // base64 PNG thumbnail
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PopupPendingData {
+    capture_id: u64,
+}
+
+fn begin_capture(app: &AppHandle) -> u64 {
+    let Some(state) = app.try_state::<CapturePopupInfo>() else {
+        return 0;
+    };
+    let Ok(mut data) = state.data.lock() else {
+        return 0;
+    };
+    data.latest_requested = data.latest_requested.wrapping_add(1).max(1);
+    let capture_id = data.latest_requested;
+    drop(data);
+
+    if let Some(popup) = app.get_webview_window("capture-popup") {
+        let _ = popup.emit("popup-invalidated", PopupPendingData { capture_id });
+        let _ = popup.hide();
+    }
+    capture_id
+}
+
+// Publishes a unique preview file and refreshes the popup. The native fullscreen path can attach
+// full-resolution bytes later, after its lightweight preview is already visible.
+fn store_and_open_popup(
+    app: &AppHandle,
+    popup_path: PathBuf,
+    full_bytes: Option<&[u8]>,
+    w: u32,
+    h: u32,
+    capture_id: u64,
+) -> bool {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    // Preview is an inline base64 thumbnail (no asset-protocol file needed). Drop the temp file.
+    let _ = std::fs::remove_file(&popup_path);
+    let thumb = full_bytes.map(make_popup_thumb).unwrap_or_default();
+
+    if let Some(state) = app.try_state::<CapturePopupInfo>() {
+        let Ok(mut data) = state.data.lock() else {
+            return false;
+        };
+        if data.latest_requested != capture_id {
+            return false;
+        }
+        data.snapshot = Some(CaptureSnapshot {
+            capture_id,
+            data: thumb.clone(),
+            full: full_bytes.map(<[u8]>::to_vec),
+            width: w,
+            height: h,
+        });
+    }
+
+    let win_w = 320.0_f64;
+    // Image fills full width; height clamped to [120, 260] matching the frontend formula
+    let img_h = (win_w * h as f64 / w as f64).min(260.0).max(120.0);
+    let win_h = img_h + 3.0; // +3px for the progress bar
+
+    let (_, screen_h) = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let s = m.size();
+            (s.width as f64 / sf, s.height as f64 / sf)
+        })
+        .unwrap_or((1440.0, 900.0));
+    let pos_x = 20.0_f64;
+    let pos_y = screen_h - win_h - 80.0;
+
+    // Reuse the persistent popup window — resize + re-anchor (while hidden), then tell the
+    // frontend to load the new capture. The FRONTEND shows the window once it has painted the
+    // new content, so the popup never flashes the previous screenshot.
+    if let Some(existing) = app.get_webview_window("capture-popup") {
+        let _ = existing.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: win_w,
+            height: win_h,
+        }));
+        let _ = existing.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+            x: pos_x,
+            y: pos_y,
+        }));
+        // Send the base64 thumbnail directly — no second get_capture_popup_data round-trip
+        let _ = existing.emit(
+            "popup-refreshed",
+            PopupData {
+                capture_id,
+                data: thumb,
+                width: w,
+                height: h,
+            },
+        );
+        return true;
+    }
+
+    // Fallback: window somehow missing — create it (should not normally happen).
+    let _ = WebviewWindowBuilder::new(app, "capture-popup", WebviewUrl::App("index.html".into()))
+        .title("Potret")
+        .always_on_top(true)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .inner_size(win_w, win_h)
+        .position(pos_x, pos_y)
+        .build();
+    true
+}
+
+fn emit_popup_pending(app: &AppHandle, capture_id: u64) {
+    if let Some(state) = app.try_state::<CapturePopupInfo>() {
+        if state
+            .data
+            .lock()
+            .map(|data| data.latest_requested != capture_id)
+            .unwrap_or(true)
+        {
+            return;
+        }
+    }
+    let default_h = 203.0_f64;
+    let (_, screen_h) = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let s = m.size();
+            (s.width as f64 / sf, s.height as f64 / sf)
+        })
+        .unwrap_or((1440.0, 900.0));
+
+    if let Some(existing) = app.get_webview_window("capture-popup") {
+        let _ = existing.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: 320.0,
+            height: default_h,
+        }));
+        let _ = existing.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+            x: 20.0,
+            y: screen_h - default_h - 80.0,
+        }));
+        let _ = existing.emit("popup-pending", PopupPendingData { capture_id });
+    }
+}
+
+fn log_capture_stage(flow: &str, stage: &str, start: Instant, last: &mut Instant) {
+    let now = Instant::now();
+    eprintln!(
+        "[potret][{flow}] {stage}: +{}ms (total {}ms)",
+        now.duration_since(*last).as_millis(),
+        now.duration_since(start).as_millis()
+    );
+    *last = now;
+}
+
+fn prepare_main_window_for_capture(app: &AppHandle, wait_after_hide: Duration) -> bool {
+    let main = app.get_webview_window("main");
+    let main_was_visible = main
+        .as_ref()
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if main_was_visible {
+        if let Some(w) = &main {
+            let _ = w.hide();
+        }
+        std::thread::sleep(wait_after_hide);
+    }
+    main_was_visible
+}
+
+fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
+    if !main_was_visible {
+        return;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+    }
+}
+
+fn finalize_capture_and_popup(
+    app: &AppHandle,
+    popup_path: PathBuf,
+    bytes: Vec<u8>,
+    width: u32,
+    height: u32,
+    flow: &str,
+    start: Instant,
+    last: &mut Instant,
+    capture_id: u64,
+) -> CaptureResult {
+    if store_and_open_popup(app, popup_path, Some(&bytes), width, height, capture_id) {
+        log_capture_stage(flow, "popup refreshed", start, last);
+    } else {
+        log_capture_stage(flow, "stale popup refresh skipped", start, last);
+    }
+
+    queue_capture_persistence(app, bytes);
+    log_capture_stage(flow, "history/autosave queued", start, last);
+
+    CaptureResult {
+        success: true,
+        screenshot: None,
+        error: None,
+    }
+}
+
+fn queue_capture_persistence(app: &AppHandle, bytes: Vec<u8>) {
+    let app_bg = app.clone();
+    let config = load_config_sync(app);
+    std::thread::spawn(move || {
+        if let Err(e) = save_to_history(&app_bg, &bytes) {
+            let _ = app_bg.emit("save-error", format!("Couldn't save to history: {e}"));
+        } else {
+            let _ = app_bg.emit("history-updated", ());
+        }
+        if let Some(p) = config.save_path.clone() {
+            if let Err(e) = auto_save_to_path(&bytes, &p, &config) {
+                let _ = app_bg.emit("save-error", format!("Couldn't save to folder: {e}"));
+            }
+        }
+    });
+}
+
+// Pre-create the transparent overlay windows once at startup, hidden. They are only ever
+// shown/hidden afterwards — never rebuilt. This is what eliminates the macOS transparent-webview
+// black flash, the per-capture bundle-reload lag, and the "label already exists" rebuild race.
+fn precreate_overlay_windows(app: &AppHandle) {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    let (screen_w, screen_h) = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let s = m.size();
+            (s.width as f64 / sf, s.height as f64 / sf)
+        })
+        .unwrap_or((1440.0, 900.0));
+
+    // Fullscreen selector overlay
+    if app.get_webview_window("capture-selector").is_none() {
+        let _ = WebviewWindowBuilder::new(
+            app,
+            "capture-selector",
+            WebviewUrl::App("index.html".into()),
+        )
+        .always_on_top(true)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .inner_size(screen_w, screen_h)
+        .position(0.0, 0.0)
+        .build();
+    }
+
+    // Bottom-left quick-access popup (default size; resized per capture)
+    if app.get_webview_window("capture-popup").is_none() {
+        let default_h = 203.0_f64;
+        let _ =
+            WebviewWindowBuilder::new(app, "capture-popup", WebviewUrl::App("index.html".into()))
+                .title("Potret")
+                .always_on_top(true)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .resizable(false)
+                .skip_taskbar(true)
+                .visible(false)
+                .inner_size(320.0, default_h)
+                .position(20.0, screen_h - default_h - 80.0)
+                .build();
+    }
 }
 
 fn save_to_history(app: &AppHandle, bytes: &[u8]) -> Result<HistoryItem, String> {
@@ -106,7 +435,13 @@ fn save_to_history(app: &AppHandle, bytes: &[u8]) -> Result<HistoryItem, String>
 
     let file_size = bytes.len() as u64;
     let (width, height) = image_dimensions(bytes).unwrap_or((0, 0));
-    let thumbnail = make_thumbnail(bytes)?;
+
+    // Generate the 640px thumbnail once and cache it to disk so get_history never
+    // has to re-decode the full-resolution PNG again.
+    let thumb_bytes = make_thumbnail_bytes(bytes)?;
+    let thumb_path = dir.join(format!("{}.thumb.png", id));
+    let _ = std::fs::write(&thumb_path, &thumb_bytes);
+    let thumbnail = general_purpose::STANDARD.encode(&thumb_bytes);
 
     let meta = HistoryMeta {
         id: id.clone(),
@@ -135,93 +470,184 @@ fn save_to_history(app: &AppHandle, bytes: &[u8]) -> Result<HistoryItem, String>
 
 #[tauri::command]
 async fn capture_fullscreen(app: AppHandle) -> CaptureResult {
-    capture_with_args(&app, &["-x"])
+    // Plain async command (no spawn_blocking) — running Tauri window ops from a background
+    // thread on macOS can hang. Native ScreenCaptureKit path is disabled (CLI is proven).
+    let capture_id = begin_capture(&app);
+    capture_with_args(&app, &["-x"], "fullscreen", capture_id)
+}
+
+#[cfg(target_os = "macos")]
+#[allow(dead_code)]
+fn capture_fullscreen_native(app: &AppHandle, capture_id: u64) -> Result<CaptureResult, String> {
+    let flow = "fullscreen-native";
+    let start = Instant::now();
+    let mut last = start;
+
+    if let Some(popup) = app.get_webview_window("capture-popup") {
+        let _ = popup.hide();
+    }
+    let main_was_visible = prepare_main_window_for_capture(app, Duration::from_millis(24));
+    log_capture_stage(flow, "windows hidden", start, &mut last);
+
+    let preview_app = app.clone();
+    let capture = match native_capture::capture_main_display_png(move |preview| {
+        eprintln!(
+            "[potret][{flow}] ScreenCaptureKit frame: {}ms; ImageIO preview: {}ms",
+            preview.frame_ms, preview.encode_ms
+        );
+        restore_main_window_after_capture(&preview_app, main_was_visible);
+        emit_popup_pending(&preview_app, capture_id);
+
+        let dir = popup_temp_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let preview_path = dir.join(format!("{}.jpg", Uuid::new_v4()));
+        std::fs::write(&preview_path, &preview.bytes).map_err(|e| e.to_string())?;
+        let _ = store_and_open_popup(
+            &preview_app,
+            preview_path,
+            None,
+            preview.width,
+            preview.height,
+            capture_id,
+        );
+        Ok(())
+    }) {
+        Ok(capture) => capture,
+        Err(error) => {
+            restore_main_window_after_capture(app, main_was_visible);
+            return Err(error);
+        }
+    };
+    eprintln!(
+        "[potret][{flow}] lossless ImageIO PNG completed in {}ms (frame {}ms, {}x{})",
+        capture.encode_ms, capture.frame_ms, capture.width, capture.height
+    );
+    log_capture_stage(flow, "lossless capture encoded", start, &mut last);
+
+    let bytes = capture.bytes;
+    if let Some(state) = app.try_state::<CapturePopupInfo>() {
+        if let Ok(mut data) = state.data.lock() {
+            if data.latest_requested == capture_id {
+                if let Some(snapshot) = data
+                    .snapshot
+                    .as_mut()
+                    .filter(|snapshot| snapshot.capture_id == capture_id)
+                {
+                    snapshot.full = Some(bytes.clone());
+                }
+            }
+        }
+    }
+    queue_capture_persistence(app, bytes);
+    log_capture_stage(flow, "history/autosave queued", start, &mut last);
+
+    Ok(CaptureResult {
+        success: true,
+        screenshot: None,
+        error: None,
+    })
 }
 
 #[tauri::command]
 async fn capture_area(app: AppHandle) -> CaptureResult {
-    capture_with_args(&app, &["-x", "-s"])
+    let capture_id = begin_capture(&app);
+    capture_with_args(&app, &["-x", "-s"], "area-cli", capture_id)
 }
 
 #[tauri::command]
 async fn capture_window(app: AppHandle) -> CaptureResult {
-    capture_with_args(&app, &["-x", "-w"])
+    let capture_id = begin_capture(&app);
+    capture_with_args(&app, &["-x", "-w"], "window", capture_id)
 }
 
-fn capture_with_args(app: &AppHandle, extra_args: &[&str]) -> CaptureResult {
-    let tmp = std::env::temp_dir().join("potret_capture.png");
+// Render the template once, then append -1, -2, … until the path is free (no overwrite).
+fn unique_save_path(dir: &std::path::Path, template: &str, ext: &str) -> PathBuf {
+    let base = render_filename(template, ext, 0);
+    let mut path = dir.join(&base);
+    let stem = base.trim_end_matches(&format!(".{ext}")).to_string();
+    let mut seq = 1u64;
+    while path.exists() && seq < 10000 {
+        path = dir.join(format!("{stem}-{seq}.{ext}"));
+        seq += 1;
+    }
+    path
+}
+
+fn auto_save_to_path(bytes: &[u8], save_path: &str, config: &AppConfig) -> Result<(), String> {
+    let dir = PathBuf::from(save_path);
+    if !dir.exists() {
+        return Err(format!("Save folder not found: {save_path}"));
+    }
+    let (out, ext) = encode_for_output(bytes, &config.format, config.jpeg_quality);
+    let path = unique_save_path(&dir, &config.filename_template, ext);
+    std::fs::write(&path, &out).map_err(|e| e.to_string())
+}
+
+fn capture_with_args(
+    app: &AppHandle,
+    extra_args: &[&str],
+    flow: &str,
+    capture_id: u64,
+) -> CaptureResult {
+    let start = Instant::now();
+    let mut last = start;
+
+    // Capture directly into the popup asset directory to avoid copying the full PNG afterward.
+    let dir = popup_temp_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let tmp = dir.join(format!("{}.png", Uuid::new_v4()));
     let tmp_str = tmp.to_string_lossy().to_string();
+
+    // A previous quick-access popup must not appear in the next screenshot.
+    if let Some(popup) = app.get_webview_window("capture-popup") {
+        let _ = popup.hide();
+    }
+
+    // Hide our own main window so it isn't in the screenshot; restore it afterward.
+    let main_was_visible = prepare_main_window_for_capture(app, Duration::from_millis(24));
+    log_capture_stage(flow, "main window hidden", start, &mut last);
 
     let mut args: Vec<&str> = extra_args.to_vec();
     args.push(tmp_str.as_str());
 
-    let status = Command::new("screencapture")
+    // screencapture runs the interactive UI and blocks until done
+    let _ = Command::new("screencapture")
         .args(&args)
-        .stderr(std::process::Stdio::null()) // suppress "could not create image from rect" noise
+        .stderr(std::process::Stdio::null())
         .status();
+    log_capture_stage(flow, "screencapture finished", start, &mut last);
 
-    match status {
-        Ok(s) if s.success() => {
-            if !tmp.exists() {
-                return CaptureResult {
-                    success: false,
-                    screenshot: None,
-                    error: Some("Capture cancelled".into()),
-                };
-            }
-            match std::fs::read(&tmp) {
-                Ok(bytes) => {
-                    let _ = std::fs::remove_file(&tmp);
+    restore_main_window_after_capture(app, main_was_visible);
+    log_capture_stage(flow, "main window restored", start, &mut last);
 
-                    // Save to history (best-effort; don't fail the capture if it fails)
-                    let _ = save_to_history(app, &bytes);
+    if !tmp.exists() {
+        return CaptureResult {
+            success: false,
+            screenshot: None,
+            error: None,
+        }; // user cancelled
+    }
 
-                    let data = general_purpose::STANDARD.encode(&bytes);
-                    let (w, h) = image_dimensions(&bytes).unwrap_or((0, 0));
-                    CaptureResult {
-                        success: true,
-                        screenshot: Some(Screenshot {
-                            data,
-                            width: w,
-                            height: h,
-                        }),
-                        error: None,
-                    }
-                }
-                Err(e) => CaptureResult {
-                    success: false,
-                    screenshot: None,
-                    error: Some(e.to_string()),
-                },
-            }
+    // The OS has committed the new image, so the loading shell can no longer be captured.
+    emit_popup_pending(app, capture_id);
+    log_capture_stage(flow, "popup pending emitted", start, &mut last);
+
+    match std::fs::read(&tmp) {
+        Ok(bytes) => {
+            log_capture_stage(flow, "capture file read", start, &mut last);
+            let (w, h) = image_dimensions(&bytes).unwrap_or((0, 0));
+            log_capture_stage(flow, "dimensions decoded", start, &mut last);
+
+            finalize_capture_and_popup(app, tmp, bytes, w, h, flow, start, &mut last, capture_id)
         }
-        Ok(_) => {
-            // Non-zero exit — if the file was still written (e.g. partial), use it.
-            // If there's no file, the user cancelled (Escape); treat silently.
-            if tmp.exists() {
-                if let Ok(bytes) = std::fs::read(&tmp) {
-                    let _ = std::fs::remove_file(&tmp);
-                    let _ = save_to_history(app, &bytes);
-                    let data = general_purpose::STANDARD.encode(&bytes);
-                    let (w, h) = image_dimensions(&bytes).unwrap_or((0, 0));
-                    return CaptureResult {
-                        success: true,
-                        screenshot: Some(Screenshot { data, width: w, height: h }),
-                        error: None,
-                    };
-                }
-            }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
             CaptureResult {
                 success: false,
                 screenshot: None,
-                error: None, // silent — user pressed Escape
+                error: Some(e.to_string()),
             }
-        },
-        Err(e) => CaptureResult {
-            success: false,
-            screenshot: None,
-            error: Some(e.to_string()),
-        },
+        }
     }
 }
 
@@ -234,6 +660,68 @@ fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
         .ok()
 }
 
+fn capture_selected_region(
+    app: &AppHandle,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    _dpr: f64,
+    capture_id: u64,
+) -> CaptureResult {
+    let flow = "area-region";
+    let start = Instant::now();
+    let mut last = start;
+
+    let rx = x.round().max(0.0) as i32;
+    let ry = y.round().max(0.0) as i32;
+    let rw = w.round().max(1.0) as i32;
+    let rh = h.round().max(1.0) as i32;
+    let rect = format!("{rx},{ry},{rw},{rh}");
+
+    let dir = popup_temp_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let tmp = dir.join(format!("{}.png", Uuid::new_v4()));
+    let tmp_str = tmp.to_string_lossy().to_string();
+
+    let _ = Command::new("screencapture")
+        .args(["-x", "-R", rect.as_str(), tmp_str.as_str()])
+        .stderr(std::process::Stdio::null())
+        .status();
+    log_capture_stage(flow, "screencapture -R finished", start, &mut last);
+
+    if !tmp.exists() {
+        return CaptureResult {
+            success: false,
+            screenshot: None,
+            error: Some("Capture failed".into()),
+        };
+    }
+
+    // Reveal only after screencapture has committed the region, avoiding self-capture.
+    emit_popup_pending(app, capture_id);
+    log_capture_stage(flow, "popup pending emitted", start, &mut last);
+
+    match std::fs::read(&tmp) {
+        Ok(bytes) => {
+            log_capture_stage(flow, "region file read", start, &mut last);
+            let (width, height) = image_dimensions(&bytes).unwrap_or((0, 0));
+            log_capture_stage(flow, "dimensions decoded", start, &mut last);
+            finalize_capture_and_popup(
+                app, tmp, bytes, width, height, flow, start, &mut last, capture_id,
+            )
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            CaptureResult {
+                success: false,
+                screenshot: None,
+                error: Some(e.to_string()),
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // History commands
 // ---------------------------------------------------------------------------
@@ -242,34 +730,51 @@ fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 async fn get_history(app: AppHandle) -> Result<Vec<HistoryItem>, String> {
     let dir = history_dir(&app)?;
 
-    let mut items: Vec<HistoryItem> = Vec::new();
-
-    let entries = std::fs::read_dir(&dir).map_err(|e| e.to_string())?;
-    for entry in entries.flatten() {
+    // 1) Collect metadata only (cheap — small JSON reads, no image decode)
+    let mut metas: Vec<HistoryMeta> = Vec::new();
+    for entry in std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
+        if let Ok(s) = std::fs::read_to_string(&path) {
+            if let Ok(m) = serde_json::from_str::<HistoryMeta>(&s) {
+                metas.push(m);
+            }
+        }
+    }
 
-        let meta_str = match std::fs::read_to_string(&path) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let meta: HistoryMeta = match serde_json::from_str(&meta_str) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
+    // 2) Newest first, cap at 50 BEFORE doing any thumbnail work
+    metas.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    metas.truncate(50);
 
+    // 3) Build items using the cached on-disk thumbnail; generate + cache on miss
+    let mut items: Vec<HistoryItem> = Vec::with_capacity(metas.len());
+    for meta in metas {
         let png_path = dir.join(format!("{}.png", meta.id));
         if !png_path.exists() {
             continue;
         }
 
-        // Build thumbnail from saved PNG
-        let thumbnail = std::fs::read(&png_path)
-            .ok()
-            .and_then(|b| make_thumbnail(&b).ok())
-            .unwrap_or_default();
+        let thumb_path = dir.join(format!("{}.thumb.png", meta.id));
+        let thumbnail = if let Ok(tb) = std::fs::read(&thumb_path) {
+            general_purpose::STANDARD.encode(&tb)
+        } else {
+            // Cache miss (older item): decode the full PNG once, then cache it
+            match std::fs::read(&png_path)
+                .ok()
+                .and_then(|b| make_thumbnail_bytes(&b).ok())
+            {
+                Some(tb) => {
+                    let _ = std::fs::write(&thumb_path, &tb);
+                    general_purpose::STANDARD.encode(&tb)
+                }
+                None => String::new(),
+            }
+        };
 
         items.push(HistoryItem {
             id: meta.id,
@@ -282,11 +787,29 @@ async fn get_history(app: AppHandle) -> Result<Vec<HistoryItem>, String> {
         });
     }
 
-    // Sort newest first and limit to 50
-    items.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    items.truncate(50);
-
     Ok(items)
+}
+
+// Persist an (annotated) PNG into history. Used after the annotation editor saves.
+#[tauri::command]
+async fn add_to_history(app: AppHandle, data: String) -> Result<(), String> {
+    let bytes = general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| e.to_string())?;
+    save_to_history(&app, &bytes)?;
+    Ok(())
+}
+
+// Load the full-resolution PNG for a history item as base64 (for copy / edit / pin / background)
+#[tauri::command]
+async fn get_history_full(app: AppHandle, id: String) -> Result<String, String> {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("Invalid id".into());
+    }
+    let dir = history_dir(&app)?;
+    let png_path = dir.join(format!("{}.png", id));
+    let bytes = std::fs::read(&png_path).map_err(|e| e.to_string())?;
+    Ok(general_purpose::STANDARD.encode(&bytes))
 }
 
 #[tauri::command]
@@ -299,12 +822,16 @@ async fn delete_history_item(app: AppHandle, id: String) -> Result<(), String> {
     let dir = history_dir(&app)?;
     let png_path = dir.join(format!("{}.png", id));
     let meta_path = dir.join(format!("{}.json", id));
+    let thumb_path = dir.join(format!("{}.thumb.png", id));
 
     if png_path.exists() {
         std::fs::remove_file(&png_path).map_err(|e| e.to_string())?;
     }
     if meta_path.exists() {
         std::fs::remove_file(&meta_path).map_err(|e| e.to_string())?;
+    }
+    if thumb_path.exists() {
+        let _ = std::fs::remove_file(&thumb_path);
     }
 
     Ok(())
@@ -321,6 +848,361 @@ async fn clear_history(app: AppHandle) -> Result<(), String> {
                 let _ = std::fs::remove_file(path);
             }
         }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Config types and commands
+// ---------------------------------------------------------------------------
+
+fn default_format() -> String {
+    "png".into()
+}
+fn default_jpeg_quality() -> u8 {
+    90
+}
+fn default_filename_template() -> String {
+    "Screenshot {date} at {time}".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfig {
+    pub shortcut_area: String,
+    pub shortcut_window: String,
+    pub shortcut_fullscreen: String,
+    pub save_path: Option<String>,
+    // Output options — #[serde(default = ...)] keeps old config.json files loading
+    #[serde(default = "default_format")]
+    pub format: String, // "png" | "jpg"
+    #[serde(default = "default_jpeg_quality")]
+    pub jpeg_quality: u8, // 1–100, JPG only
+    #[serde(default = "default_filename_template")]
+    pub filename_template: String,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            shortcut_area: "CommandOrControl+Shift+4".into(),
+            shortcut_window: "CommandOrControl+Shift+5".into(),
+            shortcut_fullscreen: "CommandOrControl+Shift+3".into(),
+            save_path: None,
+            format: default_format(),
+            jpeg_quality: default_jpeg_quality(),
+            filename_template: default_filename_template(),
+        }
+    }
+}
+
+// Render a filename from a template, substituting {date} {time} {unix} {seq} and sanitizing.
+fn render_filename(template: &str, ext: &str, seq: u64) -> String {
+    let now = chrono::Local::now();
+    let date = now.format("%Y-%m-%d").to_string();
+    let time = now.format("%H-%M-%S").to_string();
+    let unix = now.timestamp().to_string();
+    let mut name = template
+        .replace("{date}", &date)
+        .replace("{time}", &time)
+        .replace("{unix}", &unix)
+        .replace("{seq}", &seq.to_string());
+    // Strip characters illegal in filenames
+    name = name
+        .chars()
+        .map(|c| if "/\\:*?\"<>|".contains(c) { '-' } else { c })
+        .collect();
+    if name.trim().is_empty() {
+        name = format!("Screenshot {}", unix);
+    }
+    format!("{}.{}", name.trim(), ext)
+}
+
+// Encode PNG bytes into the configured output format. Returns (bytes, extension).
+fn encode_for_output(png_bytes: &[u8], format: &str, quality: u8) -> (Vec<u8>, &'static str) {
+    if format.eq_ignore_ascii_case("jpg") || format.eq_ignore_ascii_case("jpeg") {
+        if let Ok(img) = image::load_from_memory(png_bytes) {
+            let rgb = img.to_rgb8(); // JPEG has no alpha
+            let mut buf: Vec<u8> = Vec::new();
+            let mut enc =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality.clamp(1, 100));
+            if enc.encode_image(&rgb).is_ok() {
+                return (buf, "jpg");
+            }
+        }
+    }
+    (png_bytes.to_vec(), "png")
+}
+
+fn config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+    Ok(base.join("config.json"))
+}
+
+#[tauri::command]
+async fn get_config(app: AppHandle) -> Result<AppConfig, String> {
+    let path = config_path(&app)?;
+    if !path.exists() {
+        return Ok(AppConfig::default());
+    }
+    let s = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str(&s).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_config(app: AppHandle, config: AppConfig) -> Result<(), String> {
+    let path = config_path(&app)?;
+    let s = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    std::fs::write(&path, s).map_err(|e| e.to_string())?;
+    // Re-register global shortcuts immediately with the new config
+    register_shortcuts_from_config(&app, &config);
+    Ok(())
+}
+
+fn load_config_sync(app: &AppHandle) -> AppConfig {
+    let path = match config_path(app) {
+        Ok(p) => p,
+        Err(_) => return AppConfig::default(),
+    };
+    if !path.exists() {
+        return AppConfig::default();
+    }
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn parse_shortcut_str(s: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, String> {
+    use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut};
+
+    let mut mods = Modifiers::empty();
+    let mut code: Option<Code> = None;
+
+    for part in s.split('+') {
+        match part.trim() {
+            "CommandOrControl" | "CmdOrCtrl" | "Command" => {
+                #[cfg(target_os = "macos")]
+                {
+                    mods |= Modifiers::META;
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    mods |= Modifiers::CONTROL;
+                }
+            }
+            "Shift" => mods |= Modifiers::SHIFT,
+            "Alt" | "Option" => mods |= Modifiers::ALT,
+            "Control" | "Ctrl" => mods |= Modifiers::CONTROL,
+            "Meta" | "Super" => mods |= Modifiers::META,
+            k => {
+                code = Some(match k {
+                    "0" => Code::Digit0,
+                    "1" => Code::Digit1,
+                    "2" => Code::Digit2,
+                    "3" => Code::Digit3,
+                    "4" => Code::Digit4,
+                    "5" => Code::Digit5,
+                    "6" => Code::Digit6,
+                    "7" => Code::Digit7,
+                    "8" => Code::Digit8,
+                    "9" => Code::Digit9,
+                    "A" => Code::KeyA,
+                    "B" => Code::KeyB,
+                    "C" => Code::KeyC,
+                    "D" => Code::KeyD,
+                    "E" => Code::KeyE,
+                    "F" => Code::KeyF,
+                    "G" => Code::KeyG,
+                    "H" => Code::KeyH,
+                    "I" => Code::KeyI,
+                    "J" => Code::KeyJ,
+                    "K" => Code::KeyK,
+                    "L" => Code::KeyL,
+                    "M" => Code::KeyM,
+                    "N" => Code::KeyN,
+                    "O" => Code::KeyO,
+                    "P" => Code::KeyP,
+                    "Q" => Code::KeyQ,
+                    "R" => Code::KeyR,
+                    "S" => Code::KeyS,
+                    "T" => Code::KeyT,
+                    "U" => Code::KeyU,
+                    "V" => Code::KeyV,
+                    "W" => Code::KeyW,
+                    "X" => Code::KeyX,
+                    "Y" => Code::KeyY,
+                    "Z" => Code::KeyZ,
+                    "F1" => Code::F1,
+                    "F2" => Code::F2,
+                    "F3" => Code::F3,
+                    "F4" => Code::F4,
+                    "F5" => Code::F5,
+                    "F6" => Code::F6,
+                    "F7" => Code::F7,
+                    "F8" => Code::F8,
+                    "F9" => Code::F9,
+                    "F10" => Code::F10,
+                    "F11" => Code::F11,
+                    "F12" => Code::F12,
+                    _ => return Err(format!("Unknown key: {k}")),
+                });
+            }
+        }
+    }
+
+    let code = code.ok_or_else(|| format!("No key code in shortcut string: {s}"))?;
+    let mods_opt = if mods.is_empty() { None } else { Some(mods) };
+    Ok(Shortcut::new(mods_opt, code))
+}
+
+fn register_shortcuts_from_config(app: &AppHandle, config: &AppConfig) {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+    let _ = app.global_shortcut().unregister_all();
+
+    let sc_area = match parse_shortcut_str(&config.shortcut_area) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[potret] Invalid area shortcut: {e}");
+            return;
+        }
+    };
+    let sc_window = match parse_shortcut_str(&config.shortcut_window) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[potret] Invalid window shortcut: {e}");
+            return;
+        }
+    };
+    let sc_fullscreen = match parse_shortcut_str(&config.shortcut_fullscreen) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[potret] Invalid fullscreen shortcut: {e}");
+            return;
+        }
+    };
+
+    let area_code = sc_area.key;
+    let window_code = sc_window.key;
+    let fullscreen_code = sc_fullscreen.key;
+    let app2 = app.clone();
+
+    let _ = app.global_shortcut().on_shortcuts(
+        [sc_fullscreen, sc_area, sc_window],
+        move |_app, shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let mode = if shortcut.key == fullscreen_code {
+                "fullscreen"
+            } else if shortcut.key == area_code {
+                "area"
+            } else if shortcut.key == window_code {
+                "window"
+            } else {
+                return;
+            };
+            let _ = app2.emit("shortcut-triggered", serde_json::json!({ "mode": mode }));
+        },
+    );
+}
+
+#[tauri::command]
+async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let path = app.dialog().file().blocking_pick_folder();
+    Ok(path.map(|p| p.to_string()))
+}
+
+#[tauri::command]
+async fn pin_screenshot(
+    app: AppHandle,
+    state: tauri::State<'_, PinnedScreenshots>,
+    data: String,
+    img_width: u32,
+    img_height: u32,
+) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    let short_id = Uuid::new_v4()
+        .to_string()
+        .replace('-', "")
+        .chars()
+        .take(8)
+        .collect::<String>();
+    let label = format!("pinned-{short_id}");
+
+    state
+        .data
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(label.clone(), data);
+
+    // Scale down if too large, keeping aspect ratio
+    let max_w = 560_f64;
+    let scale = if img_width as f64 > max_w {
+        max_w / img_width as f64
+    } else {
+        1.0_f64
+    };
+    let win_w = (img_width as f64 * scale).round();
+    let win_h = (img_height as f64 * scale).round() + 28.0; // +28 for drag header
+
+    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+        .title("Pinned — Potret")
+        .always_on_top(true)
+        .decorations(false)
+        .transparent(true)
+        .shadow(true)
+        .resizable(true)
+        .inner_size(win_w, win_h)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    // Free the stored image when the window is closed by ANY means (OS close, ⌘W, etc.),
+    // not just via the close_pinned command — otherwise the base64 leaks for the session.
+    let app_evt = app.clone();
+    let label_evt = label.clone();
+    win.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            if let Some(state) = app_evt.try_state::<PinnedScreenshots>() {
+                if let Ok(mut map) = state.data.lock() {
+                    map.remove(&label_evt);
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_pinned_data(
+    state: tauri::State<'_, PinnedScreenshots>,
+    window_label: String,
+) -> Result<Option<String>, String> {
+    Ok(state
+        .data
+        .lock()
+        .map_err(|e| e.to_string())?
+        .get(&window_label)
+        .cloned())
+}
+
+#[tauri::command]
+async fn close_pinned(
+    app: AppHandle,
+    state: tauri::State<'_, PinnedScreenshots>,
+    window_label: String,
+) -> Result<(), String> {
+    state
+        .data
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&window_label);
+    if let Some(win) = app.get_webview_window(&window_label) {
+        win.close().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -343,7 +1225,8 @@ async fn copy_to_clipboard(data: String) -> Result<(), String> {
         .decode(&data)
         .map_err(|e| e.to_string())?;
 
-    let tmp = std::env::temp_dir().join("potret_clipboard.png");
+    // Unique temp file so concurrent copies don't clobber / delete each other's file.
+    let tmp = std::env::temp_dir().join(format!("potret_clipboard_{}.png", Uuid::new_v4()));
     std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
 
     let status = Command::new("osascript")
@@ -364,25 +1247,271 @@ async fn copy_to_clipboard(data: String) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
-async fn open_annotation_window(app: AppHandle, data: String) -> Result<(), String> {
-    app.manage(AnnotationData {
-        data: Mutex::new(data),
-    });
+// ---------------------------------------------------------------------------
+// macOS permission helpers
+// ---------------------------------------------------------------------------
 
-    if let Some(win) = app.get_webview_window("annotation") {
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+
+#[tauri::command]
+fn check_screen_recording_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        CGPreflightScreenCaptureAccess()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
+async fn request_screen_recording_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        CGRequestScreenCaptureAccess()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
+async fn open_system_settings_permissions() {
+    #[cfg(target_os = "macos")]
+    {
+        // Works on macOS 13 Ventura and later
+        let _ = Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .status();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Custom capture selector overlay
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn open_capture_selector(app: AppHandle) -> Result<(), String> {
+    let capture_id = begin_capture(&app);
+    // The selector is pre-created hidden at startup. Re-fit it to the current screen and tell
+    // the frontend to reset its drag state. The FRONTEND shows the window after it clears the
+    // previous selection, so the selector never flashes a stale rectangle (mirrors the popup).
+    let (sw, sh) = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| {
+            let sf = m.scale_factor();
+            let s = m.size();
+            (s.width as f64 / sf, s.height as f64 / sf)
+        })
+        .unwrap_or((1440.0, 900.0));
+
+    // Safety net: if the persistent window is gone, recreate it hidden first.
+    if app.get_webview_window("capture-selector").is_none() {
+        precreate_overlay_windows(&app);
+    }
+
+    let win = app
+        .get_webview_window("capture-selector")
+        .ok_or_else(|| "Selector window unavailable".to_string())?;
+
+    let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: sw,
+        height: sh,
+    }));
+    let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+        x: 0.0,
+        y: 0.0,
+    }));
+    // Frontend resets state then shows the window — do NOT show() here (avoids stale-selection flash).
+    let _ = win.emit("selector-activate", PopupPendingData { capture_id });
+    Ok(())
+}
+
+#[tauri::command]
+async fn capture_region_and_crop(
+    app: AppHandle,
+    capture_id: u64,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    dpr: f64,
+) -> CaptureResult {
+    let start = Instant::now();
+    let mut last = start;
+
+    // Hide (not close) the persistent selector window; reset its cursor first so the
+    // crosshair doesn't stay stuck on screen after the overlay disappears.
+    if let Some(win) = app.get_webview_window("capture-selector") {
+        let _ = win.set_cursor_icon(tauri::CursorIcon::Default);
+        let _ = win.hide();
+    }
+    log_capture_stage("area", "selector hidden", start, &mut last);
+    // Wait for the overlay to clear the compositor before screenshotting
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    log_capture_stage("area", "overlay clear wait complete", start, &mut last);
+
+    let result = capture_selected_region(&app, x, y, w, h, dpr, capture_id);
+    log_capture_stage("area", "region capture worker finished", start, &mut last);
+
+    if !result.success {
+        return result;
+    }
+
+    // Tell the main window to reload history and clear capturing state
+    let _ = app.emit("capture-completed", ());
+    log_capture_stage("area", "capture-completed emitted", start, &mut last);
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Capture popup window
+// ---------------------------------------------------------------------------
+
+// Returns the popup preview path + dimensions (used only for the cold-mount case; the hot path
+// gets this directly in the popup-refreshed event payload).
+#[tauri::command]
+async fn get_capture_popup_data(
+    state: tauri::State<'_, CapturePopupInfo>,
+) -> Result<Option<PopupData>, String> {
+    let data = state.data.lock().map_err(|e| e.to_string())?;
+    Ok(data.snapshot.as_ref().map(|snapshot| PopupData {
+        capture_id: snapshot.capture_id,
+        data: snapshot.data.clone(),
+        width: snapshot.width,
+        height: snapshot.height,
+    }))
+}
+
+// Returns the full-resolution base64 PNG (slower, only fetched when user edits)
+async fn wait_for_capture_bytes(
+    state: &CapturePopupInfo,
+    capture_id: u64,
+) -> Result<Vec<u8>, String> {
+    for _ in 0..100 {
+        {
+            let data = state.data.lock().map_err(|e| e.to_string())?;
+            if data.latest_requested != capture_id {
+                return Err("Capture is no longer current".to_string());
+            }
+            if let Some(full) = data
+                .snapshot
+                .as_ref()
+                .filter(|snapshot| snapshot.capture_id == capture_id)
+                .and_then(|snapshot| snapshot.full.clone())
+            {
+                return Ok(full);
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Err("Capture is still processing".to_string())
+}
+
+#[tauri::command]
+async fn get_capture_full_data(
+    state: tauri::State<'_, CapturePopupInfo>,
+    capture_id: u64,
+) -> Result<Option<String>, String> {
+    match wait_for_capture_bytes(&state, capture_id).await {
+        Ok(full) => Ok(Some(general_purpose::STANDARD.encode(full))),
+        Err(error) if error == "Capture is no longer current" => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[tauri::command]
+async fn close_capture_popup(
+    app: AppHandle,
+    state: tauri::State<'_, CapturePopupInfo>,
+    capture_id: u64,
+) -> Result<(), String> {
+    {
+        let mut data = state.data.lock().map_err(|e| e.to_string())?;
+        if data.latest_requested != capture_id {
+            return Ok(());
+        }
+        let _ = data
+            .snapshot
+            .take()
+            .filter(|snapshot| snapshot.capture_id == capture_id);
+    }
+    // Hide (not close) — the window is kept alive for reuse on the next capture
+    if let Some(win) = app.get_webview_window("capture-popup") {
+        let _ = win.hide();
+    }
+    Ok(())
+}
+
+// Save the full-res capture to the configured save path, or ~/Desktop if not set
+#[tauri::command]
+async fn quick_save_capture(
+    app: AppHandle,
+    state: tauri::State<'_, CapturePopupInfo>,
+    capture_id: u64,
+) -> Result<String, String> {
+    let bytes = wait_for_capture_bytes(&state, capture_id).await?;
+
+    let config = load_config_sync(&app);
+
+    let dir = config
+        .save_path
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            PathBuf::from(home).join("Desktop")
+        });
+
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+
+    let (out, ext) = encode_for_output(&bytes, &config.format, config.jpeg_quality);
+    let path = unique_save_path(&dir, &config.filename_template, ext);
+    std::fs::write(&path, &out).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+async fn open_main_for_edit(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
         win.show().map_err(|e| e.to_string())?;
         win.set_focus().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
+// Write the current capture to a temp file (with a clean name) for native drag-out, return its path.
 #[tauri::command]
-async fn get_annotation_data(
-    state: tauri::State<'_, AnnotationData>,
+async fn stage_capture_for_drag(
+    app: AppHandle,
+    state: tauri::State<'_, CapturePopupInfo>,
+    capture_id: u64,
 ) -> Result<String, String> {
-    let data = state.data.lock().map_err(|e| e.to_string())?;
-    Ok(data.clone())
+    let bytes = wait_for_capture_bytes(&state, capture_id).await?;
+
+    let config = load_config_sync(&app);
+    let (out, ext) = encode_for_output(&bytes, &config.format, config.jpeg_quality);
+
+    // Dedicated temp dir, cleared each drag so the dropped file keeps a clean name
+    let drag_dir = std::env::temp_dir().join("potret_drag");
+    let _ = std::fs::remove_dir_all(&drag_dir);
+    std::fs::create_dir_all(&drag_dir).map_err(|e| e.to_string())?;
+
+    let path = drag_dir.join(render_filename(&config.filename_template, ext, 0));
+    std::fs::write(&path, &out).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -391,8 +1520,15 @@ async fn get_annotation_data(
 
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let capture_area = MenuItem::with_id(app, "capture_area", "Capture Area", true, None::<&str>)?;
-    let capture_window = MenuItem::with_id(app, "capture_window", "Capture Window", true, None::<&str>)?;
-    let capture_fullscreen = MenuItem::with_id(app, "capture_fullscreen", "Capture Fullscreen", true, None::<&str>)?;
+    let capture_window =
+        MenuItem::with_id(app, "capture_window", "Capture Window", true, None::<&str>)?;
+    let capture_fullscreen = MenuItem::with_id(
+        app,
+        "capture_fullscreen",
+        "Capture Fullscreen",
+        true,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(app)?;
     let show = MenuItem::with_id(app, "show", "Show Potret", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -409,36 +1545,29 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         ],
     )?;
 
-    let icon = Image::from_path(
-        app.path()
-            .resource_dir()
-            .unwrap_or_default()
-            .join("icons/icon.png"),
-    )
-    .or_else(|_| {
-        // Fallback: try loading from the bundle icons directory
-        let fallback = app
-            .path()
-            .resource_dir()
-            .unwrap_or_default()
-            .join("icons/32x32.png");
-        Image::from_path(fallback)
-    });
-
-    let mut tray_builder = TrayIconBuilder::new()
+    let tray_builder = TrayIconBuilder::new()
         .menu(&menu)
+        .icon(tauri::include_image!("icons/tray-icon.png"))
+        .icon_as_template(true)
+        .tooltip("Potret")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             let app = app.clone();
             match event.id().as_ref() {
                 "capture_fullscreen" => {
-                    let _ = app.emit("tray-capture-fullscreen", ());
+                    let _ = app.emit(
+                        "shortcut-triggered",
+                        serde_json::json!({ "mode": "fullscreen" }),
+                    );
                 }
                 "capture_area" => {
-                    let _ = app.emit("tray-capture-area", ());
+                    let _ = app.emit("shortcut-triggered", serde_json::json!({ "mode": "area" }));
                 }
                 "capture_window" => {
-                    let _ = app.emit("tray-capture-window", ());
+                    let _ = app.emit(
+                        "shortcut-triggered",
+                        serde_json::json!({ "mode": "window" }),
+                    );
                 }
                 "show" => {
                     if let Some(win) = app.get_webview_window("main") {
@@ -461,55 +1590,21 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             {
                 let app = tray.app_handle();
                 if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
+                    if win.is_visible().unwrap_or(false) {
+                        let _ = win.hide();
+                    } else {
+                        let _ = win.show();
+                        let _ = win.set_focus();
+                    }
                 }
             }
         });
-
-    if let Ok(img) = icon {
-        tray_builder = tray_builder.icon(img);
-    }
 
     tray_builder.build(app)?;
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Global shortcut setup
-// ---------------------------------------------------------------------------
-
-fn setup_global_shortcuts(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
-
-    // Cmd+Shift+3 → fullscreen
-    let shortcut_fullscreen = Shortcut::new(Some(Modifiers::META | Modifiers::SHIFT), Code::Digit3);
-    // Cmd+Shift+4 → area
-    let shortcut_area = Shortcut::new(Some(Modifiers::META | Modifiers::SHIFT), Code::Digit4);
-    // Cmd+Shift+5 → window
-    let shortcut_window = Shortcut::new(Some(Modifiers::META | Modifiers::SHIFT), Code::Digit5);
-
-    app.global_shortcut().on_shortcuts(
-        [shortcut_fullscreen, shortcut_area, shortcut_window],
-        {
-            let app = app.clone();
-            move |_app, shortcut, event| {
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
-                if shortcut.key == Code::Digit3 {
-                    let _ = app.emit("global-shortcut-fullscreen", ());
-                } else if shortcut.key == Code::Digit4 {
-                    let _ = app.emit("global-shortcut-area", ());
-                } else if shortcut.key == Code::Digit5 {
-                    let _ = app.emit("global-shortcut-window", ());
-                }
-            }
-        },
-    )?;
-
-    Ok(())
-}
+// (global shortcut setup is now handled by register_shortcuts_from_config above)
 
 // ---------------------------------------------------------------------------
 // Entry point
@@ -523,28 +1618,76 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .plugin(tauri_plugin_drag::init())
         .setup(|app| {
             // System tray
             setup_tray(app.handle())?;
 
-            // Global shortcuts
-            if let Err(e) = setup_global_shortcuts(app.handle()) {
-                eprintln!("[potret] Failed to register global shortcuts: {e}");
+            // Load config and register global shortcuts from it
+            let config = load_config_sync(app.handle());
+            register_shortcuts_from_config(app.handle(), &config);
+
+            // Intercept window close → hide instead of destroy.
+            // This keeps the frontend alive so global shortcut events are
+            // still received and the tray icon can re-show the window.
+            if let Some(win) = app.get_webview_window("main") {
+                let win_clone = win.clone();
+                win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win_clone.hide();
+                    }
+                });
             }
 
+            // Hide from Dock on macOS — run as a menubar-only app
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // Pre-create the transparent overlay windows (hidden) so captures are
+            // instant and flash-free — see precreate_overlay_windows for the why.
+            precreate_overlay_windows(app.handle());
+
             Ok(())
+        })
+        .manage(PinnedScreenshots {
+            data: Mutex::new(HashMap::new()),
+        })
+        .manage(CapturePopupInfo {
+            data: Mutex::new(CapturePopupState::default()),
         })
         .invoke_handler(tauri::generate_handler![
             capture_fullscreen,
             capture_area,
             capture_window,
+            open_capture_selector,
+            capture_region_and_crop,
             save_image,
             copy_to_clipboard,
-            open_annotation_window,
-            get_annotation_data,
             get_history,
+            get_history_full,
+            add_to_history,
             delete_history_item,
             clear_history,
+            get_config,
+            save_config,
+            pick_folder,
+            pin_screenshot,
+            get_pinned_data,
+            close_pinned,
+            check_screen_recording_permission,
+            request_screen_recording_permission,
+            open_system_settings_permissions,
+            get_capture_popup_data,
+            get_capture_full_data,
+            close_capture_popup,
+            quick_save_capture,
+            stage_capture_for_drag,
+            open_main_for_edit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running potret");

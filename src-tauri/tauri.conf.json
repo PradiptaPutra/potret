@@ -19,27 +19,21 @@
         "minWidth": 700,
         "minHeight": 500,
         "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "transparent": false,
         "visible": true,
         "center": true
-      },
-      {
-        "label": "annotation",
-        "title": "Potret — Annotate",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 800,
-        "minHeight": 600,
-        "decorations": true,
-        "transparent": false,
-        "visible": false,
-        "center": true,
-        "url": "annotation"
       }
     ],
     "security": {
-      "csp": null
-    }
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$TEMP/**", "$TEMP/potret_popup/**"]
+      }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

@@ -1,5 +1,6 @@
-import { Loader2 } from "lucide-react";
+import { Loader2, Settings } from "lucide-react";
 import { HistoryItem } from "../App";
+import { AppConfig, formatShortcut } from "../utils";
 import HistoryPanel from "./HistoryPanel";
 
 interface Props {
@@ -7,10 +8,14 @@ interface Props {
   loading: string | null;
   error: string | null;
   history: HistoryItem[];
+  config: AppConfig;
   onDeleteHistory: (id: string) => void;
   onCopyHistory: (item: HistoryItem) => void;
   onSelectHistory: (item: HistoryItem) => void;
   onClearHistory: () => void;
+  onPinHistory: (item: HistoryItem) => void;
+  onBackgroundHistory: (item: HistoryItem) => void;
+  onSettings: () => void;
 }
 
 /* ── Icons — distinct SVG per mode, consistent 1.5px stroke ─────────── */
@@ -42,68 +47,66 @@ const FullscreenIcon = () => (
   </svg>
 );
 
-const modes = [
-  { key: "area"       as const, Icon: AreaIcon,       label: "Area",       desc: "Select a region",  shortcut: "⌘⇧4" },
-  { key: "window"     as const, Icon: WindowIcon,     label: "Window",     desc: "Click any window", shortcut: "⌘⇧5" },
-  { key: "fullscreen" as const, Icon: FullscreenIcon, label: "Fullscreen", desc: "Entire display",   shortcut: "⌘⇧3" },
-];
-
 export default function CaptureHome({
   onCapture,
   loading,
   error,
   history,
+  config,
   onDeleteHistory,
   onCopyHistory,
   onSelectHistory,
   onClearHistory,
+  onPinHistory,
+  onBackgroundHistory,
+  onSettings,
 }: Props) {
+  const modes = [
+    { key: "area"       as const, Icon: AreaIcon,       label: "Area",       desc: "Select a region",  shortcut: formatShortcut(config.shortcut_area) },
+    { key: "window"     as const, Icon: WindowIcon,     label: "Window",     desc: "Click any window", shortcut: formatShortcut(config.shortcut_window) },
+    { key: "fullscreen" as const, Icon: FullscreenIcon, label: "Fullscreen", desc: "Entire display",   shortcut: formatShortcut(config.shortcut_fullscreen) },
+  ];
   return (
     <div
       className="flex h-full w-full overflow-hidden"
-      style={{ background: "var(--bg-base)", position: "relative", zIndex: 1 }}
+      style={{ background: "var(--bg-window)" }}
     >
       {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
       <aside
-        className="glass-panel flex flex-col shrink-0"
+        className="flex flex-col shrink-0"
         style={{
-          width: 216,
-          borderRight: "1px solid var(--border-default)",
+          width: 220,
+          background: "var(--bg-panel)",
+          borderRight: "1px solid var(--border)",
         }}
       >
-        {/* Brand row */}
+        {/* Traffic lights zone — native buttons overlay here, content stays clear */}
         <div
-          style={{
-            display: "flex", alignItems: "center", gap: 10,
-            height: 44, padding: "0 20px",
-            borderBottom: "1px solid var(--border-subtle)",
-          }}
-        >
-          {/* Amber aperture mark */}
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6" stroke="#F59E0B" strokeWidth="1.25" />
-            <circle cx="7" cy="7" r="2.5" stroke="#F59E0B" strokeWidth="1.25" />
-            <circle cx="7" cy="7" r="1" fill="#F59E0B" />
-          </svg>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.02em" }}>
+          data-tauri-drag-region
+          style={{ height: 38, flexShrink: 0, cursor: "default" }}
+        />
+
+        {/* App identity — sits below the traffic lights */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "0 16px 14px 16px",
+          borderBottom: "1px solid var(--border)",
+          flexShrink: 0,
+        }}>
+          <img
+            src="/app-icon.png"
+            style={{ width: 22, height: 22, borderRadius: 5, flexShrink: 0 }}
+            alt=""
+          />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
             Potret
           </span>
         </div>
 
-        {/* ── Capture section ── */}
-        <div style={{ padding: "16px 20px 8px" }}>
-          <span style={{
-            fontSize: 9,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.12em",
-            color: "var(--text-muted)",
-          }}>
-            Capture
-          </span>
-        </div>
+        <div style={{ height: 8 }} />
 
-        <div style={{ display: "flex", flexDirection: "column", padding: "0 10px 8px" }}>
+        {/* Capture buttons */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
           {modes.map(({ key, Icon, label, desc, shortcut }) => (
             <CaptureBtn
               key={key}
@@ -119,16 +122,20 @@ export default function CaptureHome({
 
         {/* Loading / error pill */}
         {(loading || error) && (
-          <div style={{ margin: "0 10px 8px" }}>
+          <div style={{ margin: "0 12px 8px" }}>
             <div
-              className="flex items-center gap-2 px-3 py-2 rounded-lg"
               style={{
-                background: loading ? "var(--accent-dim)" : "rgba(239,68,68,0.08)",
-                border: `1px solid ${loading ? "var(--accent-border)" : "rgba(239,68,68,0.2)"}`,
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                background: loading ? "var(--accent-dim)" : "rgba(255,69,58,0.10)",
+                border: `1px solid ${loading ? "var(--accent-border)" : "rgba(255,69,58,0.25)"}`,
               }}
             >
-              {loading && <Loader2 style={{ width: 11, height: 11, color: "var(--accent)", flexShrink: 0 }} className="animate-spin" />}
-              <span style={{ fontSize: 11, color: loading ? "var(--accent)" : "var(--accent-red)" }}>
+              {loading && (
+                <Loader2 style={{ width: 11, height: 11, color: "var(--accent)", flexShrink: 0 }} className="animate-spin" />
+              )}
+              <span style={{ fontSize: 11, color: loading ? "var(--accent)" : "var(--red)" }}>
                 {loading ?? error}
               </span>
             </div>
@@ -137,36 +144,53 @@ export default function CaptureHome({
 
         <div className="flex-1" />
 
-        {/* ── Divider + footer ── */}
+        {/* Footer */}
         <div style={{
-          borderTop: "1px solid var(--border-subtle)",
-          padding: "10px 20px",
+          borderTop: "1px solid var(--border)",
+          padding: "8px 16px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
-          <span style={{ fontSize: 10, fontFamily: "'SF Mono', 'Menlo', monospace", color: "var(--text-muted)" }}>
+          <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>
             v0.1.0
           </span>
-          <a
-            href="https://github.com/aditpradipta/potret"
-            target="_blank"
-            rel="noreferrer"
-            style={{ fontSize: 10, color: "var(--text-muted)", textDecoration: "none" }}
-            onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
-            onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}
-          >
-            GitHub ↗
-          </a>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={onSettings}
+              title="Settings"
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "var(--text-tertiary)", padding: 0, display: "flex",
+                alignItems: "center",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = "var(--text-primary)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
+            >
+              <Settings size={13} />
+            </button>
+            <a
+              href="https://github.com/aditpradipta/potret"
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 10, color: "var(--text-tertiary)", textDecoration: "none" }}
+              onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
+              onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
+            >
+              GitHub ↗
+            </a>
+          </div>
         </div>
       </aside>
 
       {/* ── MAIN ─────────────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col overflow-hidden" style={{ position: "relative", zIndex: 1 }}>
+      <main className="flex-1 flex flex-col overflow-hidden" style={{ background: "var(--bg-window)" }}>
         <HistoryPanel
           items={history}
           onSelect={onSelectHistory}
           onDelete={onDeleteHistory}
           onCopy={onCopyHistory}
           onClear={onClearHistory}
+          onPin={onPinHistory}
+          onBackground={onBackgroundHistory}
           loading={false}
         />
       </main>
@@ -187,6 +211,7 @@ interface CaptureBtnProps {
 function CaptureBtn({ Icon, label, desc, shortcut, disabled, onClick }: CaptureBtnProps) {
   return (
     <button
+      className="sidebar-btn"
       onClick={onClick}
       disabled={disabled}
       style={{
@@ -194,83 +219,77 @@ function CaptureBtn({ Icon, label, desc, shortcut, disabled, onClick }: CaptureB
         display: "flex",
         alignItems: "center",
         gap: 10,
-        width: "100%",
-        textAlign: "left",
-        borderRadius: 8,
-        padding: "8px 12px",
+        padding: "7px 16px",
         background: "transparent",
         border: "none",
+        width: "100%",
         cursor: disabled ? "not-allowed" : "pointer",
+        borderRadius: 0,
         opacity: disabled ? 0.4 : 1,
-        transition: "background 0.15s",
-        marginBottom: 2,
+        transition: "background 0.12s",
       }}
     >
-      {/* Amber left accent — inside button, only on hover via CSS */}
+      {/* Amber left accent — visible on hover via CSS */}
       <div
         className="capture-btn-accent"
         style={{
           position: "absolute",
-          left: 3,
-          top: 6,
-          bottom: 6,
+          left: 0,
+          top: 5,
+          bottom: 5,
           width: 2,
           borderRadius: 2,
           background: "var(--accent)",
           opacity: 0,
-          transition: "opacity 0.15s",
+          transition: "opacity 0.12s",
         }}
       />
 
-      {/* Icon container */}
+      {/* Icon — bare, no surrounding box */}
       <div
         className="capture-btn-icon"
         style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           flexShrink: 0,
-          width: 30, height: 30,
-          borderRadius: 7,
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.07)",
-          color: "rgba(148,163,184,0.6)",
-          transition: "background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s",
+          width: 16, height: 16,
+          color: "var(--text-tertiary)",
+          transition: "color 0.12s",
         }}
       >
         <Icon />
       </div>
 
       {/* Label + description */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
         <div
           className="capture-btn-label"
           style={{
-            fontSize: 12,
+            fontSize: 13,
             fontWeight: 500,
-            color: "rgba(255,255,255,0.75)",
+            color: "var(--text-primary)",
             lineHeight: 1,
-            transition: "color 0.15s",
+            transition: "color 0.12s",
           }}
         >
           {label}
         </div>
-        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3.5, lineHeight: 1 }}>
+        <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2, lineHeight: 1 }}>
           {desc}
         </div>
       </div>
 
-      {/* Shortcut badge — system font so ⇧ renders */}
+      {/* Shortcut badge */}
       <kbd style={{
         flexShrink: 0,
         fontSize: 10,
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         fontWeight: 500,
-        color: "var(--text-muted)",
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.07)",
-        borderRadius: 5,
-        padding: "2px 6px",
+        color: "var(--text-tertiary)",
+        background: "rgba(255,255,255,0.06)",
+        border: "1px solid var(--border)",
+        borderRadius: 4,
+        padding: "1px 5px",
         lineHeight: 1.6,
-        letterSpacing: "0.01em",
       }}>
         {shortcut}
       </kbd>

@@ -7,8 +7,18 @@ export function useHistory() {
 
   const loadHistory = useCallback(async () => {
     try {
-      const history = await invoke<HistoryItem[]>("get_history");
-      setItems(history ?? []);
+      // Rust serializes snake_case fields and stores unix SECONDS — normalize here
+      const raw = await invoke<Array<Record<string, unknown>>>("get_history");
+      const history: HistoryItem[] = (raw ?? []).map((h) => ({
+        id: h.id as string,
+        path: h.path as string,
+        thumbnail: h.thumbnail as string,
+        timestamp: (h.timestamp as number) * 1000, // seconds → ms for JS Date
+        width: h.width as number,
+        height: h.height as number,
+        fileSize: h.file_size as number, // snake_case → camelCase
+      }));
+      setItems(history);
     } catch {
       // Backend command may not exist yet — gracefully return empty
       setItems([]);

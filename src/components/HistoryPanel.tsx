@@ -1,4 +1,4 @@
-import { Copy, Trash2, Pencil, Camera } from "lucide-react";
+import { Copy, Trash2, Pencil, Camera, Pin, ImageIcon } from "lucide-react";
 import { HistoryItem } from "../App";
 import { formatRelativeTime } from "../utils/time";
 
@@ -8,6 +8,8 @@ interface Props {
   onDelete: (id: string) => void;
   onCopy: (item: HistoryItem) => void;
   onClear: () => void;
+  onPin: (item: HistoryItem) => void;
+  onBackground: (item: HistoryItem) => void;
   loading: boolean;
 }
 
@@ -17,50 +19,61 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/* ── Skeleton card — shimmer per ui-ux-pro-max §3 progressive loading ── */
+/* ── Skeleton card ── */
 function SkeletonCard() {
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}>
+    <div
+      style={{
+        borderRadius: 8,
+        overflow: "hidden",
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
+      }}
+    >
       <div className="w-full skeleton" style={{ aspectRatio: "16/10" }} />
-      <div className="p-2.5 space-y-2">
-        <div className="h-2.5 rounded-full skeleton" style={{ width: "70%" }} />
-        <div className="h-2 rounded-full skeleton" style={{ width: "45%" }} />
+      <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+        <div className="skeleton" style={{ height: 10, borderRadius: 4, width: "70%" }} />
+        <div className="skeleton" style={{ height: 8, borderRadius: 4, width: "45%" }} />
       </div>
     </div>
   );
 }
 
-export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClear, loading }: Props) {
+export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClear, onPin, onBackground, loading }: Props) {
 
   /* ── Header ── */
   const header = (
     <div
-      className="flex items-center justify-between px-4 shrink-0"
       style={{
-        height: 44,
-        borderBottom: "1px solid var(--border-default)",
-        backdropFilter: "blur(12px)",
-        background: "rgba(10,13,24,0.6)",
+        height: 48,
+        padding: "0 16px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        borderBottom: "1px solid var(--border)",
+        flexShrink: 0,
       }}
     >
-      <div className="flex items-center gap-2">
-        <div style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--accent)", opacity: 0.85 }} />
-        <span style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Amber dot */}
+        <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
+        <span style={{
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          color: "var(--text-secondary)",
+        }}>
           Recent Captures
         </span>
         {items.length > 0 && (
-          <span
-            style={{
-              fontSize: 10,
-              fontFamily: "'SF Mono', monospace",
-              color: "var(--text-muted)",
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid var(--border-default)",
-              borderRadius: 4,
-              padding: "0px 5px",
-              lineHeight: 1.7,
-            }}
-          >
+          <span style={{
+            fontSize: 10,
+            color: "var(--text-tertiary)",
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid var(--border)",
+            borderRadius: 4,
+            padding: "0px 5px",
+            lineHeight: 1.7,
+          }}>
             {items.length}
           </span>
         )}
@@ -68,10 +81,17 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
       {items.length > 0 && (
         <button
           onClick={onClear}
-          className="cursor-pointer"
-          style={{ fontSize: 10.5, color: "var(--text-muted)", background: "none", border: "none", padding: 0, transition: "color 0.15s" }}
-          onMouseEnter={e => (e.currentTarget.style.color = "var(--accent-red)")}
-          onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}
+          style={{
+            fontSize: 10.5,
+            color: "var(--text-tertiary)",
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            transition: "color 0.12s",
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = "var(--red)")}
+          onMouseLeave={e => (e.currentTarget.style.color = "var(--text-tertiary)")}
         >
           Clear all
         </button>
@@ -84,8 +104,8 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {header}
-        <div className="flex-1 overflow-y-auto p-3">
-          <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+        <div className="flex-1 overflow-y-auto" style={{ padding: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
           </div>
         </div>
@@ -98,22 +118,12 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
         {header}
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          {/* Subtle camera ring */}
-          <div
-            style={{
-              width: 40, height: 40,
-              borderRadius: "50%",
-              border: "1px solid var(--border-default)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(255,255,255,0.02)",
-            }}
-          >
-            <Camera style={{ width: 16, height: 16, color: "var(--text-muted)" }} />
-          </div>
+        <div className="flex-1 flex flex-col items-center justify-center" style={{ gap: 10 }}>
+          {/* Bare camera icon — no surrounding box */}
+          <Camera style={{ width: 20, height: 20, color: "var(--text-tertiary)" }} />
           <div style={{ textAlign: "center" }}>
-            <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-tertiary)" }}>No captures yet</p>
-            <p style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>
+            <p style={{ fontSize: 12, fontWeight: 500, color: "var(--text-secondary)" }}>No captures yet</p>
+            <p style={{ fontSize: 10.5, color: "var(--text-tertiary)", marginTop: 4, lineHeight: 1.5 }}>
               Use a capture mode to get started
             </p>
           </div>
@@ -126,8 +136,8 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {header}
-      <div className="flex-1 overflow-y-auto p-3">
-        <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+      <div className="flex-1 overflow-y-auto" style={{ padding: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           {items.map(item => (
             <HistoryCard
               key={item.id}
@@ -135,6 +145,8 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
               onSelect={onSelect}
               onDelete={onDelete}
               onCopy={onCopy}
+              onPin={onPin}
+              onBackground={onBackground}
             />
           ))}
         </div>
@@ -149,91 +161,105 @@ function HistoryCard({
   onSelect,
   onDelete,
   onCopy,
+  onPin,
+  onBackground,
 }: {
   item: HistoryItem;
   onSelect: (i: HistoryItem) => void;
   onDelete: (id: string) => void;
   onCopy: (i: HistoryItem) => void;
+  onPin: (i: HistoryItem) => void;
+  onBackground: (i: HistoryItem) => void;
 }) {
   const size = formatSize(item.fileSize);
 
   return (
     <div
-      className="group relative rounded-xl overflow-hidden cursor-pointer"
+      className="group relative cursor-pointer"
       style={{
         background: "var(--bg-card)",
-        border: "1px solid var(--border-default)",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        overflow: "hidden",
         transition: "border-color 0.18s, transform 0.18s, box-shadow 0.18s",
       }}
       onClick={() => onSelect(item)}
       onMouseEnter={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.borderColor = "rgba(245,158,11,0.30)";
-        el.style.transform = "translateY(-2px)";
-        el.style.boxShadow = "0 10px 36px rgba(0,0,0,0.55), 0 0 0 1px rgba(245,158,11,0.10)";
+        el.style.borderColor = "var(--accent-border)";
+        el.style.transform = "translateY(-1px)";
+        el.style.boxShadow = "0 6px 20px rgba(0,0,0,0.5)";
       }}
       onMouseLeave={e => {
         const el = e.currentTarget as HTMLElement;
-        el.style.borderColor = "var(--border-default)";
+        el.style.borderColor = "var(--border)";
         el.style.transform = "";
         el.style.boxShadow = "";
       }}
     >
       {/* Thumbnail */}
-      <div style={{ aspectRatio: "16/10", background: "#080C18", overflow: "hidden" }}>
+      <div style={{ aspectRatio: "16/10", background: "#111", overflow: "hidden" }}>
         {item.thumbnail ? (
           <img
             src={`data:image/png;base64,${item.thumbnail}`}
             alt="Screenshot"
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
           />
         ) : (
           <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Camera style={{ width: 16, height: 16, color: "rgba(255,255,255,0.06)" }} />
+            <Camera style={{ width: 16, height: 16, color: "rgba(255,255,255,0.08)" }} />
           </div>
         )}
       </div>
 
-      {/* Hover action buttons — appear top-right */}
+      {/* Hover action buttons — top-right */}
       <div
         className="absolute flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
         style={{ top: 7, right: 7 }}
       >
         {([
-          { title: "Copy",   Icon: Copy,   action: () => onCopy(item),      danger: false },
-          { title: "Edit",   Icon: Pencil, action: () => onSelect(item),    danger: false },
-          { title: "Delete", Icon: Trash2, action: () => onDelete(item.id), danger: true  },
-        ] as const).map(({ title, Icon, action, danger }) => (
+          { title: "Background", Icon: ImageIcon, action: () => onBackground(item), danger: false, accent: "#a78bfa" },
+          { title: "Pin",        Icon: Pin,        action: () => onPin(item),        danger: false, accent: null },
+          { title: "Copy",       Icon: Copy,       action: () => onCopy(item),       danger: false, accent: null },
+          { title: "Edit",       Icon: Pencil,     action: () => onSelect(item),     danger: false, accent: null },
+          { title: "Delete",     Icon: Trash2,     action: () => onDelete(item.id),  danger: true,  accent: null },
+        ] as const).map(({ title, Icon, action, danger, accent }) => (
           <button
             key={title}
             title={title}
             onClick={e => { e.stopPropagation(); action(); }}
-            className="flex items-center justify-center rounded-lg cursor-pointer"
             style={{
-              width: 24, height: 24,
-              background: "rgba(6, 8, 18, 0.80)",
-              border: "1px solid rgba(255,255,255,0.10)",
-              color: "rgba(255,255,255,0.75)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              width: 22, height: 22,
+              borderRadius: 6,
+              background: "rgba(0,0,0,0.72)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.80)",
               backdropFilter: "blur(8px)",
+              cursor: "pointer",
               transition: "background 0.12s, color 0.12s, border-color 0.12s",
             }}
             onMouseEnter={e => {
               const el = e.currentTarget;
               if (danger) {
-                el.style.background = "rgba(239,68,68,0.80)";
-                el.style.borderColor = "rgba(239,68,68,0.5)";
+                el.style.background = "rgba(255,69,58,0.85)";
+                el.style.borderColor = "rgba(255,69,58,0.5)";
+                el.style.color = "#fff";
+              } else if (accent) {
+                el.style.background = accent;
+                el.style.borderColor = accent;
                 el.style.color = "#fff";
               } else {
-                el.style.background = "rgba(245,158,11,0.80)";
-                el.style.borderColor = "rgba(245,158,11,0.5)";
-                el.style.color = "#0B0E1C";
+                el.style.background = "rgba(255,159,10,0.85)";
+                el.style.borderColor = "rgba(255,159,10,0.5)";
+                el.style.color = "#000";
               }
             }}
             onMouseLeave={e => {
               const el = e.currentTarget;
-              el.style.background = "rgba(6, 8, 18, 0.80)";
-              el.style.borderColor = "rgba(255,255,255,0.10)";
-              el.style.color = "rgba(255,255,255,0.75)";
+              el.style.background = "rgba(0,0,0,0.72)";
+              el.style.borderColor = "rgba(255,255,255,0.12)";
+              el.style.color = "rgba(255,255,255,0.80)";
             }}
           >
             <Icon size={10} />
@@ -242,22 +268,22 @@ function HistoryCard({
       </div>
 
       {/* Metadata */}
-      <div style={{ padding: "9px 11px 11px" }}>
+      <div style={{ padding: "8px 10px 10px" }}>
         <p style={{
           fontSize: 11,
           fontWeight: 500,
-          fontFamily: "'SF Mono', 'Menlo', monospace",
-          color: "var(--text-secondary)",
+          fontFamily: "ui-monospace, 'SF Mono', 'Menlo', monospace",
+          color: "var(--text-primary)",
           lineHeight: 1,
-          marginBottom: 5,
+          marginBottom: 4,
         }}>
           {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
         </p>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+          <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>
             {formatRelativeTime(item.timestamp)}
           </span>
-          <span style={{ fontSize: 9.5, fontFamily: "'SF Mono', monospace", color: "var(--text-muted)" }}>
+          <span style={{ fontSize: 10, fontFamily: "ui-monospace, 'SF Mono', monospace", color: "var(--text-tertiary)" }}>
             {item.width}×{item.height}{size ? ` · ${size}` : ""}
           </span>
         </div>

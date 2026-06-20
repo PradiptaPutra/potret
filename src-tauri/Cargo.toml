@@ -14,17 +14,28 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["image-png", "tray-icon"] }
+tauri = { version = "2", features = ["protocol-asset", "image-png", "tray-icon", "macos-private-api"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-drag = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
-image = { version = "0.25", features = ["png"] }
+image = { version = "0.25", features = ["png", "jpeg"] }
 uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["time"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
+block2 = "0.6"
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", features = ["CFData", "CFDictionary", "CFNumber", "CFString"] }
+objc2-core-graphics = { version = "0.3", features = ["CGDirectDisplay", "CGImage"] }
+objc2-foundation = { version = "0.3", features = ["NSError"] }
+objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageDestination", "objc2-core-graphics"] }
+objc2-screen-capture-kit = { version = "0.3", default-features = false, features = ["std", "SCScreenshotManager", "block2", "objc2-core-foundation", "objc2-core-graphics"] }
