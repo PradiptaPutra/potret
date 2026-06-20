@@ -9,6 +9,21 @@
 
 Potret lives in your menu bar. Take a screenshot and a floating **Quick Access** panel appears so you can copy, save, annotate, pin, drag it out, or drop it onto a beautiful background — without opening a heavy editor.
 
+## Download
+
+Grab the latest `.dmg` from the [**Releases**](https://github.com/PradiptaPutra/potret/releases/latest) page, open it, and drag **Potret** to Applications.
+
+> **First launch (important):** the app isn't notarized by Apple yet, so macOS will say it "can't be opened" or is "damaged." That's expected for an open-source app — to allow it, either:
+> - **Right-click** Potret in Applications → **Open** → **Open**, or
+> - run this once in Terminal:
+>   ```bash
+>   xattr -dr com.apple.quarantine /Applications/potret.app
+>   ```
+>
+> Then grant **Screen Recording** permission when prompted (System Settings → Privacy & Security → Screen Recording) and restart the app.
+
+Prefer to build it yourself? See [Development](#getting-started) below.
+
 ## Screenshots
 
 <div align="center">
