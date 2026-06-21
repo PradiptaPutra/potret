@@ -212,13 +212,20 @@ export default function CapturePopupWindow() {
 
   async function handleDragOut(e: React.DragEvent) {
     e.preventDefault(); // cancel the HTML5 drag; use a native OS file drag instead
+    if (!capture) return;
     setPaused(true); // hold the auto-dismiss timer during the drag
     try {
-      if (!capture) return;
       const path = await invoke<string>("stage_capture_for_drag", { captureId: capture.captureId });
-      await startDrag({ item: [path], icon: path });
+      // onEvent fires when the drag ends. If the screenshot was dropped into
+      // another app the popup has done its job, so dismiss it; if the drag was
+      // cancelled, resume the auto-dismiss timer instead of lingering forever.
+      await startDrag({ item: [path], icon: path }, (payload) => {
+        if (payload.result === "Dropped") dismiss();
+        else setPaused(false);
+      });
     } catch (err) {
       console.error(err);
+      setPaused(false); // drag failed — let the auto-dismiss timer resume
     }
   }
 

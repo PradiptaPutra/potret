@@ -97,7 +97,7 @@ export default function PinnedView({ windowLabel }: Props) {
           flex: 1,
           width: "100%",
           height: "calc(100% - 28px)",
-          objectFit: "fill",
+          objectFit: "contain",
           display: "block",
           borderRadius: "0 0 10px 10px",
         }}

@@ -371,30 +371,8 @@ function App() {
 
   // ── Window keyboard shortcuts ─────────────────────────────────────────────
 
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (screen === "annotate") {
-        // Escape is handled inside AnnotationCanvas (it knows whether anything was drawn)
-
-        // ⌘Z → undo (dispatch custom event that AnnotationCanvas can listen for)
-        if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("annotation:undo"));
-          return;
-        }
-
-        // ⌘S → save
-        if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("annotation:save"));
-          return;
-        }
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [screen]);
+  // Editor keyboard shortcuts (⌘Z/⌘⇧Z/⌘S/Escape) live solely inside
+  // AnnotationCanvas — handling them here too made every ⌘Z undo twice.
 
   // ── Save / Copy ────────────────────────────────────────────────────────────
 
@@ -426,17 +404,16 @@ function App() {
   async function handleSave(dataUrl: string) {
     const pngBase64 = dataUrl.replace(/^data:image\/png;base64,/, "");
     try {
-      const { base64, ext } = await encodeForOutput(dataUrl);
       if (config.save_path) {
-        // Auto-save to configured folder — no dialog needed
-        const ts = Date.now();
-        const path = `${config.save_path}/Screenshot ${ts}.${ext}`;
-        await invoke("save_image", { data: base64, path });
+        // Auto-save to the configured folder — Rust applies the filename
+        // template and output format (PNG/JPG), same as a direct capture.
+        await invoke("save_image_with_config", { data: pngBase64 });
         showToast(`Saved to ${config.save_path}`);
       } else {
-        // No path configured — show save dialog
+        // No folder configured — show a save dialog (still honor the format)
+        const { base64, ext } = await encodeForOutput(dataUrl);
         const path = await save({
-          defaultPath: `Screenshot-${Date.now()}.${ext}`,
+          defaultPath: `Screenshot.${ext}`,
           filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
         });
         if (path) {

@@ -336,22 +336,6 @@ export default function AnnotationCanvas({ capture, onBack, onSave, onCopy }: Pr
     return () => window.removeEventListener("keydown", onKey);
   }, [handleSave, onBack]);
 
-  useEffect(() => {
-    function onUndo() {
-      setShapes((prev) => {
-        if (prev.length === 0) return prev;
-        const popped = prev[prev.length - 1];
-        setRedoStack((r) => [...r, popped]);
-        return prev.slice(0, -1);
-      });
-    }
-    window.addEventListener("annotation:undo", onUndo);
-    window.addEventListener("annotation:save", handleSave as EventListener);
-    return () => {
-      window.removeEventListener("annotation:undo", onUndo);
-      window.removeEventListener("annotation:save", handleSave as EventListener);
-    };
-  }, [handleSave]);
 
   // ── Mouse position helper ──────────────────────────────────────────────────
 

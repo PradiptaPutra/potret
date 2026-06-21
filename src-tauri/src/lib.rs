@@ -158,6 +158,30 @@ fn begin_capture(app: &AppHandle) -> u64 {
 
 // Stores the capture in shared state and refreshes the (persistent, hidden) popup window with a
 // base64 thumbnail. `capture_id` guards against an older, slower capture clobbering a newer one.
+/// Logical bounds (x, y, width, height) of the monitor under the cursor, so the
+/// selector overlay and Quick Access popup land on the screen the user is using —
+/// not always the primary display. Falls back to the primary monitor, then a default.
+fn active_monitor_logical(app: &AppHandle) -> (f64, f64, f64, f64) {
+    let monitor = app
+        .cursor_position()
+        .ok()
+        .and_then(|p| app.monitor_from_point(p.x, p.y).ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    monitor
+        .map(|m| {
+            let sf = m.scale_factor();
+            let pos = m.position();
+            let size = m.size();
+            (
+                pos.x as f64 / sf,
+                pos.y as f64 / sf,
+                size.width as f64 / sf,
+                size.height as f64 / sf,
+            )
+        })
+        .unwrap_or((0.0, 0.0, 1440.0, 900.0))
+}
+
 fn store_and_open_popup(
     app: &AppHandle,
     popup_path: PathBuf,
@@ -193,18 +217,9 @@ fn store_and_open_popup(
     let img_h = (win_w * h as f64 / w as f64).min(260.0).max(120.0);
     let win_h = img_h + 3.0; // +3px for the progress bar
 
-    let (_, screen_h) = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| {
-            let sf = m.scale_factor();
-            let s = m.size();
-            (s.width as f64 / sf, s.height as f64 / sf)
-        })
-        .unwrap_or((1440.0, 900.0));
-    let pos_x = 20.0_f64;
-    let pos_y = screen_h - win_h - 80.0;
+    let (mon_x, mon_y, _mon_w, mon_h) = active_monitor_logical(app);
+    let pos_x = mon_x + 20.0;
+    let pos_y = mon_y + mon_h - win_h - 80.0;
 
     // Reuse the persistent popup window — resize + re-anchor (while hidden), then tell the
     // frontend to load the new capture. The FRONTEND shows the window once it has painted the
@@ -257,16 +272,7 @@ fn emit_popup_pending(app: &AppHandle, capture_id: u64) {
         }
     }
     let default_h = 203.0_f64;
-    let (_, screen_h) = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| {
-            let sf = m.scale_factor();
-            let s = m.size();
-            (s.width as f64 / sf, s.height as f64 / sf)
-        })
-        .unwrap_or((1440.0, 900.0));
+    let (mon_x, mon_y, _mon_w, mon_h) = active_monitor_logical(app);
 
     if let Some(existing) = app.get_webview_window("capture-popup") {
         let _ = existing.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -274,8 +280,8 @@ fn emit_popup_pending(app: &AppHandle, capture_id: u64) {
             height: default_h,
         }));
         let _ = existing.set_position(tauri::Position::Logical(tauri::LogicalPosition {
-            x: 20.0,
-            y: screen_h - default_h - 80.0,
+            x: mon_x + 20.0,
+            y: mon_y + mon_h - default_h - 80.0,
         }));
         let _ = existing.emit("popup-pending", PopupPendingData { capture_id });
     }
@@ -504,8 +510,11 @@ fn capture_with_args(app: &AppHandle, extra_args: &[&str], capture_id: u64) -> C
     let mut args: Vec<&str> = extra_args.to_vec();
     args.push(tmp_str.as_str());
 
+    // -s/-w show an interactive picker the user can cancel; -x does not.
+    let interactive = extra_args.iter().any(|a| *a == "-s" || *a == "-w");
+
     // screencapture runs the interactive UI (for -s/-w) and blocks until done.
-    let _ = Command::new("screencapture")
+    let status = Command::new("screencapture")
         .args(&args)
         .stderr(std::process::Stdio::null())
         .status();
@@ -513,11 +522,35 @@ fn capture_with_args(app: &AppHandle, extra_args: &[&str], capture_id: u64) -> C
     restore_main_window_after_capture(app, main_was_visible);
 
     if !tmp.exists() {
+        // No file produced. Tell a deliberate cancel apart from a real failure so
+        // the user gets feedback instead of silence when something actually broke.
+        if !check_screen_recording_permission() {
+            return CaptureResult {
+                success: false,
+                screenshot: None,
+                error: Some(
+                    "Screen Recording permission is required. Enable it in System Settings, then restart Potret."
+                        .into(),
+                ),
+            };
+        }
+        if interactive {
+            return CaptureResult {
+                success: false,
+                screenshot: None,
+                error: None,
+            }; // user pressed Esc in the picker — not an error
+        }
+        let detail = match status {
+            Ok(s) if !s.success() => format!("screencapture exited with {s}"),
+            Err(e) => format!("could not run screencapture: {e}"),
+            _ => "no image was produced".to_string(),
+        };
         return CaptureResult {
             success: false,
             screenshot: None,
-            error: None,
-        }; // user cancelled
+            error: Some(format!("Capture failed — {detail}.")),
+        };
     }
 
     // The OS has committed the new image, so the loading shell can no longer be captured.
@@ -575,10 +608,15 @@ fn capture_selected_region(
         .status();
 
     if !tmp.exists() {
+        let msg = if !check_screen_recording_permission() {
+            "Screen Recording permission is required. Enable it in System Settings, then restart Potret."
+        } else {
+            "Capture failed — no image was produced."
+        };
         return CaptureResult {
             success: false,
             screenshot: None,
-            error: Some("Capture failed".into()),
+            error: Some(msg.into()),
         };
     }
 
@@ -1098,6 +1136,28 @@ async fn save_image(data: String, path: String) -> Result<(), String> {
     std::fs::write(&path, &bytes).map_err(|e| e.to_string())
 }
 
+// Save an edited image to the user's configured folder, applying the filename
+// template and output format (PNG/JPG) — the same path a direct capture takes.
+#[tauri::command]
+async fn save_image_with_config(app: AppHandle, data: String) -> Result<String, String> {
+    let bytes = general_purpose::STANDARD
+        .decode(&data)
+        .map_err(|e| e.to_string())?;
+    let config = load_config_sync(&app);
+    let dir = config
+        .save_path
+        .clone()
+        .ok_or_else(|| "No save folder configured".to_string())?;
+    let dir = PathBuf::from(dir);
+    if !dir.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    let (out, ext) = encode_for_output(&bytes, &config.format, config.jpeg_quality);
+    let path = unique_save_path(&dir, &config.filename_template, ext);
+    std::fs::write(&path, &out).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 async fn copy_to_clipboard(data: String) -> Result<(), String> {
     let bytes = general_purpose::STANDARD
@@ -1188,16 +1248,7 @@ async fn open_capture_selector(app: AppHandle) -> Result<(), String> {
     // The selector is pre-created hidden at startup. Re-fit it to the current screen and tell
     // the frontend to reset its drag state. The FRONTEND shows the window after it clears the
     // previous selection, so the selector never flashes a stale rectangle (mirrors the popup).
-    let (sw, sh) = app
-        .primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| {
-            let sf = m.scale_factor();
-            let s = m.size();
-            (s.width as f64 / sf, s.height as f64 / sf)
-        })
-        .unwrap_or((1440.0, 900.0));
+    let (mon_x, mon_y, sw, sh) = active_monitor_logical(&app);
 
     // Safety net: if the persistent window is gone, recreate it hidden first.
     if app.get_webview_window("capture-selector").is_none() {
@@ -1213,8 +1264,8 @@ async fn open_capture_selector(app: AppHandle) -> Result<(), String> {
         height: sh,
     }));
     let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition {
-        x: 0.0,
-        y: 0.0,
+        x: mon_x,
+        y: mon_y,
     }));
     // Frontend resets state then shows the window — do NOT show() here (avoids stale-selection flash).
     let _ = win.emit("selector-activate", PopupPendingData { capture_id });
@@ -1242,6 +1293,11 @@ async fn capture_region_and_crop(
 
     let result = capture_selected_region(&app, x, y, w, h, dpr, capture_id);
     if !result.success {
+        // Surface real failures (the selector is fire-and-forget, so the returned
+        // error would otherwise vanish). A plain cancel carries no error message.
+        if let Some(err) = &result.error {
+            let _ = app.emit("save-error", err.clone());
+        }
         return result;
     }
 
@@ -1543,6 +1599,7 @@ pub fn run() {
             open_capture_selector,
             capture_region_and_crop,
             save_image,
+            save_image_with_config,
             copy_to_clipboard,
             get_history,
             get_history_full,
