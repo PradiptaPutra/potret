@@ -80,13 +80,17 @@ npm install
 npm run tauri dev
 ```
 
-### Build a release app
+### Build a release (.dmg)
+
+Releases are universal (Intel + Apple Silicon), signed, and packaged with one command:
 
 ```bash
-npm run tauri build
+rustup target add x86_64-apple-darwin   # one-time
+./scripts/release.sh                     # → dist-dmg/Potret_<version>_universal.dmg
 ```
 
-The bundled `.app` / `.dmg` lands in `src-tauri/target/release/bundle/`.
+(Plain `npm run tauri build` leaves the universal binary with a broken signature — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for why the script handles signing/packaging instead.)
 
 ### Permissions
 
@@ -103,8 +107,9 @@ src-tauri/src/lib.rs  main Rust entry — capture pipeline + Tauri commands
 
 ## Contributing
 
-Contributions are welcome. For anything substantial, please open an issue first to
-discuss the approach; bug reports and small fixes can go straight to a PR.
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and the
+release process. For anything substantial, please open an issue first to discuss the approach;
+bug reports and small fixes can go straight to a PR.
 
 ## Status
 
