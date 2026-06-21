@@ -20,6 +20,7 @@ export default function CapturePopupWindow() {
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState(1);
   const [paused, setPaused] = useState(false);
+  const [exiting, setExiting] = useState(false);
   const [shellHeight, setShellHeight] = useState(200);
   const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
   const startRef = useRef(Date.now());
@@ -54,6 +55,7 @@ export default function CapturePopupWindow() {
     pendingCaptureIdRef.current = captureId;
     pendingRef.current = true;
     setPending(true);
+    setExiting(false);
     setCapture(null);
     setShellHeight(getImageHeight(nextCapture ?? capture));
     resetDismissTimer();
@@ -188,8 +190,10 @@ export default function CapturePopupWindow() {
   }
 
   function dismiss() {
-    if (!capture) return;
-    void invoke("close_capture_popup", { captureId: capture.captureId });
+    if (!capture || exiting) return;
+    setExiting(true); // play the exit animation, then actually close
+    const id = capture.captureId;
+    setTimeout(() => void invoke("close_capture_popup", { captureId: id }), 150);
   }
 
   async function handleCopy() {
@@ -249,6 +253,8 @@ export default function CapturePopupWindow() {
 
   return (
     <div
+      key={capture?.captureId ?? pendingCaptureIdRef.current}
+      className={exiting ? "anim-popup-out" : "anim-popup-in"}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{
@@ -488,7 +494,7 @@ function CornerBtn({
         cursor: "pointer",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
-        transition: "background 0.12s, border-color 0.12s, transform 0.08s",
+        transition: "background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
         zIndex: 10,
         letterSpacing: "-0.01em",
       }}

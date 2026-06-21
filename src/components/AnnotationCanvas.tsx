@@ -20,7 +20,7 @@ import { CaptureData } from "../App";
 interface Props {
   capture: CaptureData;
   onBack: () => void;
-  onSave: (dataUrl: string) => Promise<void>;
+  onDone: (dataUrl: string) => Promise<void>; // save to folder & finish
   onCopy: (dataUrl: string) => Promise<void>;
 }
 
@@ -215,7 +215,7 @@ function drawShape(ctx: CanvasRenderingContext2D, s: DrawShape) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function AnnotationCanvas({ capture, onBack, onSave, onCopy }: Props) {
+export default function AnnotationCanvas({ capture, onBack, onDone, onCopy }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   // Base image source — an <img> initially, becomes the cropped <canvas> after a crop
@@ -294,9 +294,10 @@ export default function AnnotationCanvas({ capture, onBack, onSave, onCopy }: Pr
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
 
-  const handleSave = useCallback(async () => {
-    await onSave(canvasRef.current!.toDataURL("image/png"));
-  }, [onSave]);
+  // Save to the configured folder (or save dialog) and finish — used by ⌘S and Done.
+  const handleDone = useCallback(async () => {
+    await onDone(canvasRef.current!.toDataURL("image/png"));
+  }, [onDone]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -320,7 +321,7 @@ export default function AnnotationCanvas({ capture, onBack, onSave, onCopy }: Pr
       }
       if (e.metaKey && e.key === "s") {
         e.preventDefault();
-        handleSave();
+        handleDone();
       }
       if (e.key === "Escape") {
         if (escState.current.typing) return; // the text input handles its own Escape
@@ -334,7 +335,7 @@ export default function AnnotationCanvas({ capture, onBack, onSave, onCopy }: Pr
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [handleSave, onBack]);
+  }, [handleDone, onBack]);
 
 
   // ── Mouse position helper ──────────────────────────────────────────────────
@@ -899,6 +900,7 @@ export default function AnnotationCanvas({ capture, onBack, onSave, onCopy }: Pr
             {/* Copy */}
             <button
               onClick={handleCopy}
+              className="press"
               style={{
                 padding: "4px 12px",
                 borderRadius: 6,
@@ -915,14 +917,11 @@ export default function AnnotationCanvas({ capture, onBack, onSave, onCopy }: Pr
 
             <div style={sepStyle} />
 
-            {/* Done — saves then goes back */}
+            {/* Done — saves to folder & finishes */}
             <button
-              onClick={async () => {
-                if (canvasRef.current) {
-                  await onSave(canvasRef.current.toDataURL("image/png"));
-                }
-                onBack();
-              }}
+              title="Save to folder & finish (⌘S)"
+              onClick={handleDone}
+              className="press"
               style={{
                 padding: "4px 12px",
                 borderRadius: 6,

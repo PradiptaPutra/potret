@@ -11,6 +11,7 @@ import PinnedView from "./components/PinnedView";
 import BackgroundTool from "./components/BackgroundTool";
 import CapturePopupWindow from "./components/CapturePopupWindow";
 import CaptureSelector from "./components/CaptureSelector";
+import HistoryPopupWindow from "./components/HistoryPopupWindow";
 import { useHistory } from "./hooks/useHistory";
 import "./index.css";
 
@@ -149,6 +150,7 @@ function App() {
   // Lightweight popup and pinned windows — render without the full app shell
   if (WINDOW_LABEL === "capture-popup") return <CapturePopupWindow />;
   if (WINDOW_LABEL === "capture-selector") return <CaptureSelector />;
+  if (WINDOW_LABEL === "history") return <HistoryPopupWindow />;
   if (WINDOW_LABEL.startsWith("pinned-")) return <PinnedView windowLabel={WINDOW_LABEL} />;
 
   const [screen, setScreen] = useState<AppScreen>("home");
@@ -163,6 +165,9 @@ function App() {
   const { items: history, loadHistory, deleteItem, clearAll } = useHistory();
   const captureRequestIdRef = useRef(0);
   const activeCaptureModeRef = useRef<"fullscreen" | "area" | "window" | null>(null);
+  // True when the editor was opened from the Quick Access popup / history popup
+  // (a transient edit) — Done/back then hides the window instead of showing home.
+  const editFromPopupRef = useRef(false);
   const historyReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCaptureAtRef = useRef(0);
 
@@ -320,6 +325,7 @@ function App() {
       // Fetch the full-resolution PNG (only fetched on user intent to edit)
       const full = await invoke<string | null>("get_capture_full_data", { captureId });
       if (info?.captureId === captureId && full) {
+        editFromPopupRef.current = true; // opened transiently from the popup
         setCapture({ data: full, width: info.width, height: info.height });
         setScreen("annotate");
         invoke("close_capture_popup", { captureId }); // clear Rust state now that main window has the data
@@ -331,6 +337,26 @@ function App() {
     return () => {
       unlisten?.();
     };
+  }, []);
+
+  // ── History popup "Edit"/"Background" → open the editor here with the item ──
+
+  useEffect(() => {
+    let unEdit: (() => void) | undefined;
+    let unBg: (() => void) | undefined;
+    listen<{ id: string; width: number; height: number }>("history-edit-requested", async (e) => {
+      const { id, width, height } = e.payload;
+      const full = await invoke<string | null>("get_history_full", { id }).catch(() => null);
+      if (!full) return;
+      editFromPopupRef.current = true;
+      setCapture({ data: full, width, height });
+      setScreen("annotate");
+    }).then((fn) => { unEdit = fn; });
+    listen<{ id: string }>("history-background-requested", async (e) => {
+      const full = await invoke<string | null>("get_history_full", { id: e.payload.id }).catch(() => null);
+      if (full) setBackgroundSrc(full);
+    }).then((fn) => { unBg = fn; });
+    return () => { unEdit?.(); unBg?.(); };
   }, []);
 
   // ── Region capture done (emitted by Rust after capture_region_and_crop) ──
@@ -401,7 +427,7 @@ function App() {
     return { base64: jpg.replace(/^data:image\/jpeg;base64,/, ""), ext: "jpg" };
   }
 
-  async function handleSave(dataUrl: string) {
+  async function handleSave(dataUrl: string): Promise<boolean> {
     const pngBase64 = dataUrl.replace(/^data:image\/png;base64,/, "");
     try {
       if (config.save_path) {
@@ -416,16 +442,42 @@ function App() {
           defaultPath: `Screenshot.${ext}`,
           filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
         });
-        if (path) {
-          await invoke("save_image", { data: base64, path });
-          showToast("Screenshot saved!");
-        }
+        if (!path) return false; // user cancelled the save dialog
+        await invoke("save_image", { data: base64, path });
+        showToast("Screenshot saved!");
       }
       // History always stores PNG (lossless re-editing), regardless of export format
       await invoke("add_to_history", { data: pngBase64 });
       await loadHistory();
+      return true;
     } catch (e) {
       showToast(String(e), "error");
+      return false;
+    }
+  }
+
+  // Done = save to folder (or dialog) and finish. If the editor was opened from
+  // the Quick Access popup (a transient edit), hide the window afterward so the
+  // app returns to the menubar instead of lingering on the home screen.
+  async function handleDone(dataUrl: string) {
+    const ok = await handleSave(dataUrl);
+    if (!ok) return; // save failed or dialog cancelled — stay in the editor
+    if (editFromPopupRef.current) {
+      editFromPopupRef.current = false;
+      setTimeout(() => {
+        void getCurrentWindow().hide();
+        setScreen("home");
+      }, 650); // let the "Saved" toast flash before the window hides
+    } else {
+      setScreen("home");
+    }
+  }
+
+  function handleEditorBack() {
+    setScreen("home");
+    if (editFromPopupRef.current) {
+      editFromPopupRef.current = false;
+      void getCurrentWindow().hide();
     }
   }
 
@@ -488,6 +540,7 @@ function App() {
   async function handleSelectHistory(item: HistoryItem) {
     const full = await loadHistoryFull(item);
     if (!full) return;
+    editFromPopupRef.current = false; // editing inside the app — return home on Done
     setCapture({ data: full, width: item.width, height: item.height });
     setScreen("annotate");
   }
@@ -500,31 +553,35 @@ function App() {
       style={{ background: "var(--bg-window)", color: "var(--text-primary)" }}
     >
       {screen === "home" && (
-        <CaptureHome
-          onCapture={handleCapture}
-          loading={loading}
-          error={error}
-          history={history}
-          config={config}
-          onDeleteHistory={handleDeleteHistory}
-          onCopyHistory={handleCopyHistory}
-          onSelectHistory={handleSelectHistory}
-          onClearHistory={clearAll}
-          onPinHistory={handlePin}
-          onBackgroundHistory={handleBackground}
-          onSettings={() => setScreen("settings")}
-        />
+        <div className="anim-screen-left" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <CaptureHome
+            onCapture={handleCapture}
+            loading={loading}
+            error={error}
+            history={history}
+            config={config}
+            onDeleteHistory={handleDeleteHistory}
+            onCopyHistory={handleCopyHistory}
+            onSelectHistory={handleSelectHistory}
+            onClearHistory={clearAll}
+            onPinHistory={handlePin}
+            onBackgroundHistory={handleBackground}
+            onSettings={() => setScreen("settings")}
+          />
+        </div>
       )}
       {screen === "annotate" && capture && (
         <AnnotationCanvas
           capture={capture}
-          onBack={() => setScreen("home")}
-          onSave={handleSave}
+          onBack={handleEditorBack}
+          onDone={handleDone}
           onCopy={handleCopy}
         />
       )}
       {screen === "settings" && (
-        <Settings onBack={() => setScreen("home")} />
+        <div className="anim-screen-right" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <Settings onBack={() => setScreen("home")} />
+        </div>
       )}
       {backgroundSrc && (
         <BackgroundTool

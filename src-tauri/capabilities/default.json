@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for all potret windows",
-  "windows": ["main", "capture-popup", "capture-selector"],
+  "windows": ["main", "capture-popup", "capture-selector", "history"],
   "permissions": [
     "core:default",
     "core:window:allow-show",

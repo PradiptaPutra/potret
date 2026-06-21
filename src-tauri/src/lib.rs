@@ -250,6 +250,7 @@ fn store_and_open_popup(
     let _ = WebviewWindowBuilder::new(app, "capture-popup", WebviewUrl::App("index.html".into()))
         .title("Potret")
         .always_on_top(true)
+        .visible_on_all_workspaces(true)
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -371,6 +372,7 @@ fn precreate_overlay_windows(app: &AppHandle) {
             WebviewUrl::App("index.html".into()),
         )
         .always_on_top(true)
+        .visible_on_all_workspaces(true) // follow the user to whatever Space/desktop they're on
         .decorations(false)
         .transparent(true)
         .shadow(false)
@@ -389,6 +391,7 @@ fn precreate_overlay_windows(app: &AppHandle) {
             WebviewWindowBuilder::new(app, "capture-popup", WebviewUrl::App("index.html".into()))
                 .title("Potret")
                 .always_on_top(true)
+                .visible_on_all_workspaces(true) // follow the active Space/desktop
                 .decorations(false)
                 .transparent(true)
                 .shadow(false)
@@ -398,6 +401,25 @@ fn precreate_overlay_windows(app: &AppHandle) {
                 .inner_size(320.0, default_h)
                 .position(20.0, screen_h - default_h - 80.0)
                 .build();
+    }
+
+    // Menubar "Recent Captures" history popup (persistent, hidden, shown from the tray)
+    if app.get_webview_window("history").is_none() {
+        let hist_w = 380.0_f64;
+        let hist_h = 520.0_f64;
+        let _ = WebviewWindowBuilder::new(app, "history", WebviewUrl::App("index.html".into()))
+            .title("Recent Captures")
+            .always_on_top(true)
+            .visible_on_all_workspaces(true)
+            .decorations(false)
+            .transparent(true)
+            .shadow(false)
+            .resizable(false)
+            .skip_taskbar(true)
+            .visible(false)
+            .inner_size(hist_w, hist_h)
+            .position(screen_w - hist_w - 20.0, 40.0)
+            .build();
     }
 }
 
@@ -1450,6 +1472,29 @@ async fn stage_capture_for_drag(
 // Tray setup
 // ---------------------------------------------------------------------------
 
+// Show (or toggle) the menubar "Recent Captures" popup, anchored to the top-right
+// of the monitor the user is currently on (so it lands on the active Space).
+fn show_history_window(app: &AppHandle) {
+    if app.get_webview_window("history").is_none() {
+        precreate_overlay_windows(app);
+    }
+    let Some(win) = app.get_webview_window("history") else {
+        return;
+    };
+    if win.is_visible().unwrap_or(false) {
+        let _ = win.hide();
+        return;
+    }
+    let (mon_x, mon_y, mon_w, _mon_h) = active_monitor_logical(app);
+    let win_w = 380.0_f64;
+    let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+        x: mon_x + mon_w - win_w - 20.0,
+        y: mon_y + 40.0,
+    }));
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
 fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let capture_area = MenuItem::with_id(app, "capture_area", "Capture Area", true, None::<&str>)?;
     let capture_window =
@@ -1462,6 +1507,8 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         None::<&str>,
     )?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let recent =
+        MenuItem::with_id(app, "recent_captures", "Recent Captures", true, None::<&str>)?;
     let show = MenuItem::with_id(app, "show", "Show Potret", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
@@ -1472,6 +1519,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             &capture_window,
             &capture_fullscreen,
             &separator,
+            &recent,
             &show,
             &quit,
         ],
@@ -1500,6 +1548,9 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                         "shortcut-triggered",
                         serde_json::json!({ "mode": "window" }),
                     );
+                }
+                "recent_captures" => {
+                    show_history_window(&app);
                 }
                 "show" => {
                     if let Some(win) = app.get_webview_window("main") {
