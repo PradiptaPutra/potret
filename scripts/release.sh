@@ -49,21 +49,26 @@ cp -R "$APP" "${STAGE}/${APP_NAME}.app"
 codesign --force --deep --sign - "${STAGE}/${APP_NAME}.app"   # re-sign the copy too
 ln -s /Applications "${STAGE}/Applications"
 cat > "${STAGE}/① OPEN ME FIRST.txt" <<'GUIDE'
-HOW TO INSTALL & OPEN POTRET  (takes 20 seconds)
+HOW TO INSTALL & OPEN POTRET
 
-macOS blocks apps that aren't from the App Store the first time you open them.
-Potret is free & open-source (github.com/PradiptaPutra/potret) — here's how:
+EASIEST — Homebrew (no Gatekeeper prompt):
+   brew install --cask --no-quarantine PradiptaPutra/tap/potret
+
+Or install from this disk image:
 
 1) Drag  Potret  onto the  Applications  folder (both are in this window).
+   ⚠️ Do NOT double-click Potret here — copy it to Applications first.
 
 2) Open your Applications folder and double-click Potret.
-   macOS will say "Apple could not verify..." — just click  Done.
+   macOS says "Apple could not verify..." (expected for open-source apps) — click  Done.
 
-3) Open  System Settings  →  Privacy & Security , scroll down, and click
-   "Open Anyway"  next to Potret. Confirm with your password.
+3) Open  System Settings → Privacy & Security , scroll down, and click
+   "Open Anyway"  next to Potret.
 
-4) On first capture, Potret asks for Screen Recording permission. Enable it in
-   System Settings, then click "Restart" in Potret's banner. That's it!
+4) On first capture, grant Screen Recording permission, then click "Restart"
+   in Potret's banner.
+
+NOTE: Potret runs in your MENU BAR (top-right of the screen), not the Dock.
 
 ----
 Prefer Terminal? Run this instead of steps 2-3:
@@ -79,3 +84,4 @@ rm -rf "$STAGE"
 echo ""
 echo "✓ Done:  ${DMG}"
 echo "  Publish:  gh release create v${VERSION} \"${DMG}\" --title \"${APP_NAME} v${VERSION}\""
+echo "  Then:     ./scripts/publish-homebrew-cask.sh   (create/update the Homebrew tap)"

@@ -50,6 +50,13 @@ Publish it:
 gh release create v<version> dist-dmg/Potret_<version>_universal.dmg --title "Potret v<version>"
 ```
 
+Then update the Homebrew tap so `brew install --cask` picks up the new version
+(creates the `PradiptaPutra/homebrew-tap` repo on first run):
+
+```bash
+./scripts/publish-homebrew-cask.sh
+```
+
 ### Signing & notarization
 
 Builds are **ad-hoc signed** (no Apple Developer account). Consequences:

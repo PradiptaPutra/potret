@@ -11,24 +11,27 @@ Potret lives in your menu bar. Take a screenshot and a floating **Quick Access**
 
 ## Download
 
-1. Grab the latest `.dmg` from the [**Releases**](https://github.com/PradiptaPutra/potret/releases/latest) page (universal — runs on **Apple Silicon and Intel**).
-2. Open it and drag **Potret** into **Applications**, then **eject** the disk image (⏏ next to "Potret" in Finder's sidebar).
+### Homebrew (recommended — cleanest install)
 
-> ### ⚠️ First launch — required one-time step
-> Potret isn't notarized by Apple yet (that needs a paid developer account), so on first open macOS blocks it with *"Apple could not verify Potret is free of malware."* This is expected for open-source apps. Pick whichever is easier:
->
-> **Easiest — Terminal (one command):**
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/Potret.app
-> ```
-> then open Potret normally.
->
-> **No Terminal:** double-click Potret (it gets blocked → click **Done**), then go to
-> **System Settings → Privacy & Security**, scroll down to *"Potret was blocked…"* and click **Open Anyway**.
->
-> After it opens, grant **Screen Recording** permission (System Settings → Privacy & Security → Screen Recording) and restart the app.
+```bash
+brew install --cask --no-quarantine PradiptaPutra/tap/potret
+```
 
-**Uninstall:** drag **Potret** from Applications to the Trash.
+`--no-quarantine` skips the macOS Gatekeeper warning (Potret is open-source and not Apple-notarized), so it just opens. Update with `brew upgrade --cask potret`; uninstall cleanly (app **and** all its data) with `brew uninstall --zap potret`.
+
+### Direct download (.dmg)
+
+1. Grab the latest `.dmg` from the [**Releases**](https://github.com/PradiptaPutra/potret/releases/latest) page (universal — **Apple Silicon and Intel**).
+2. Open it, drag **Potret** into **Applications** (don't run it straight from the disk image), then **eject** the disk image.
+
+> #### ⚠️ First launch — one-time step
+> Without Apple notarization, the first open is blocked with *"Apple could not verify…"* — expected for open-source apps. Either:
+> - **Terminal (one command):** `xattr -dr com.apple.quarantine /Applications/Potret.app`, then open Potret.
+> - **No Terminal:** double-click Potret → **Done**, then **System Settings → Privacy & Security → "Open Anyway"**.
+>
+> Then grant **Screen Recording** (System Settings → Privacy & Security → Screen Recording) and restart. **Potret lives in your menu bar (top-right), not the Dock.**
+
+**Uninstall:** `brew uninstall --zap potret` (cask), or drag **Potret** from Applications to the Trash.
 
 Prefer to build it yourself (no Gatekeeper prompt)? See [Development](#getting-started) below.
 
