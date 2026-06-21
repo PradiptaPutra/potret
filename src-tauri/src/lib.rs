@@ -1172,6 +1172,12 @@ async fn open_system_settings_permissions() {
     }
 }
 
+// Screen Recording permission only takes effect after a full relaunch, so the UI offers this.
+#[tauri::command]
+fn restart_app(app: AppHandle) {
+    app.restart();
+}
+
 // ---------------------------------------------------------------------------
 // Custom capture selector overlay
 // ---------------------------------------------------------------------------
@@ -1551,6 +1557,7 @@ pub fn run() {
             close_pinned,
             check_screen_recording_permission,
             request_screen_recording_permission,
+            restart_app,
             open_system_settings_permissions,
             get_capture_popup_data,
             get_capture_full_data,

@@ -98,6 +98,50 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
   );
 }
 
+// ─── Screen Recording permission banner ───────────────────────────────────────
+
+function PermissionBanner({
+  onOpenSettings,
+  onRestart,
+}: {
+  onOpenSettings: () => void;
+  onRestart: () => void;
+}) {
+  return (
+    <div style={{
+      position: "fixed", left: 16, right: 16, bottom: 16, zIndex: 99998,
+      background: "rgba(36,36,40,0.97)", backdropFilter: "blur(20px)",
+      border: "1px solid rgba(255,159,10,0.35)", borderRadius: 12,
+      boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+      padding: 14, display: "flex", alignItems: "center", gap: 14,
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    }}>
+      <div style={{
+        width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+        background: "rgba(255,159,10,0.15)", display: "flex",
+        alignItems: "center", justifyContent: "center", fontSize: 16,
+      }}>🎥</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>
+          Screen Recording permission needed
+        </div>
+        <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.5)", marginTop: 2, lineHeight: 1.4 }}>
+          1. Click <b>Enable</b> and turn on Potret in System Settings. &nbsp;2. Click <b>Restart</b> for it to take effect.
+        </div>
+      </div>
+      <button onClick={onOpenSettings} style={{
+        flexShrink: 0, padding: "7px 12px", borderRadius: 7, cursor: "pointer",
+        background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)",
+        color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: 500,
+      }}>Enable…</button>
+      <button onClick={onRestart} style={{
+        flexShrink: 0, padding: "7px 14px", borderRadius: 7, cursor: "pointer",
+        background: "#FF9F0A", border: "none", color: "#000", fontSize: 12, fontWeight: 600,
+      }}>Restart</button>
+    </div>
+  );
+}
+
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
@@ -114,6 +158,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [backgroundSrc, setBackgroundSrc] = useState<string | null>(null);
+  const [screenPerm, setScreenPerm] = useState<boolean | null>(null);
 
   const { items: history, loadHistory, deleteItem, clearAll } = useHistory();
   const captureRequestIdRef = useRef(0);
@@ -124,6 +169,18 @@ function App() {
   useEffect(() => {
     invoke<AppConfig>("get_config").then(setConfig).catch(console.error);
   }, [screen]); // reload every time screen changes (catches settings saves)
+
+  // Track Screen Recording permission (re-check when the window regains focus, e.g. after the
+  // user toggles it in System Settings). Note: the grant only truly applies after an app restart.
+  useEffect(() => {
+    const check = () =>
+      invoke<boolean>("check_screen_recording_permission")
+        .then(setScreenPerm)
+        .catch(() => setScreenPerm(null));
+    check();
+    window.addEventListener("focus", check);
+    return () => window.removeEventListener("focus", check);
+  }, []);
 
   // ── Toast helpers ──────────────────────────────────────────────────────────
 
@@ -146,6 +203,14 @@ function App() {
       const now = Date.now();
       if (now - lastCaptureAtRef.current < 500) return;
       lastCaptureAtRef.current = now;
+
+      // Block capture if Screen Recording isn't granted — re-check live (it may have changed)
+      const granted = await invoke<boolean>("check_screen_recording_permission").catch(() => true);
+      setScreenPerm(granted);
+      if (!granted) {
+        showToast("Grant Screen Recording permission first", "error");
+        return;
+      }
 
       const requestId = ++captureRequestIdRef.current;
       activeCaptureModeRef.current = mode;
@@ -488,6 +553,15 @@ function App() {
         <BackgroundTool
           imageSrc={backgroundSrc}
           onClose={() => setBackgroundSrc(null)}
+        />
+      )}
+      {screen === "home" && screenPerm === false && (
+        <PermissionBanner
+          onOpenSettings={async () => {
+            await invoke("request_screen_recording_permission").catch(() => {});
+            await invoke("open_system_settings_permissions").catch(() => {});
+          }}
+          onRestart={() => invoke("restart_app")}
         />
       )}
       <ToastContainer toasts={toasts} />
