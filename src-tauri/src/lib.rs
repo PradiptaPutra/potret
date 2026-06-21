@@ -804,6 +804,9 @@ fn default_jpeg_quality() -> u8 {
 fn default_filename_template() -> String {
     "Screenshot {date} at {time}".into()
 }
+fn default_shortcut_history() -> String {
+    "CommandOrControl+Shift+H".into()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -818,6 +821,8 @@ pub struct AppConfig {
     pub jpeg_quality: u8, // 1–100, JPG only
     #[serde(default = "default_filename_template")]
     pub filename_template: String,
+    #[serde(default = "default_shortcut_history")]
+    pub shortcut_history: String,
 }
 
 impl Default for AppConfig {
@@ -830,6 +835,7 @@ impl Default for AppConfig {
             format: default_format(),
             jpeg_quality: default_jpeg_quality(),
             filename_template: default_filename_template(),
+            shortcut_history: default_shortcut_history(),
         }
     }
 }
@@ -1022,15 +1028,28 @@ fn register_shortcuts_from_config(app: &AppHandle, config: &AppConfig) {
         }
     };
 
+    // History shortcut is optional — if it's invalid we still register the captures.
+    let sc_history = parse_shortcut_str(&config.shortcut_history).ok();
+
     let area_code = sc_area.key;
     let window_code = sc_window.key;
     let fullscreen_code = sc_fullscreen.key;
+    let history_code = sc_history.as_ref().map(|s| s.key);
     let app2 = app.clone();
 
+    let mut shortcuts = vec![sc_fullscreen, sc_area, sc_window];
+    if let Some(h) = sc_history {
+        shortcuts.push(h);
+    }
+
     let _ = app.global_shortcut().on_shortcuts(
-        [sc_fullscreen, sc_area, sc_window],
+        shortcuts,
         move |_app, shortcut, event| {
             if event.state != ShortcutState::Pressed {
+                return;
+            }
+            if history_code == Some(shortcut.key) {
+                show_history_window(&app2); // open the Recent Captures popup
                 return;
             }
             let mode = if shortcut.key == fullscreen_code {

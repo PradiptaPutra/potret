@@ -50,13 +50,13 @@ Prefer to build it yourself (no Gatekeeper prompt)? See [Development](#getting-s
 ## Features
 
 - **Capture** — area (drag to select), window (click any window), or fullscreen
-- **Quick Access popup** — copy, save, annotate, pin, or drag the capture straight into another app
+- **Quick Access popup** — copy, save, annotate, pin, or drag the capture straight into another app; follows you across Spaces/desktops
 - **Annotation** — pen, line, arrow, rectangle, ellipse, text, highlighter, pixelate/blur, numbered steps, crop, eraser — with undo/redo and a custom color picker
 - **Background tool** — drop a screenshot onto gradient or custom backgrounds with padding, rounded corners, and shadow (great for social posts)
 - **Pin to screen** — keep a floating screenshot on top while you work
-- **History** — recent captures with copy / edit / pin / delete
+- **History** — recent captures with copy / edit / pin / delete, plus a **Recent Captures** menu-bar popup (⌘⇧H) to browse them without opening the app
 - **Output options** — PNG or JPG, adjustable quality, and filename templates
-- **System** — global shortcuts, menu-bar only, launch at login
+- **System** — customizable global shortcuts, menu-bar only, launch at login, and fluid animations (respects Reduce Motion)
 
 ## Tech stack
 

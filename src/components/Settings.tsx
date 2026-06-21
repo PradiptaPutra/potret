@@ -112,6 +112,7 @@ export default function Settings({ onBack }: Props) {
     { label: "Capture Area", key: "shortcut_area" },
     { label: "Capture Window", key: "shortcut_window" },
     { label: "Capture Fullscreen", key: "shortcut_fullscreen" },
+    { label: "Recent Captures", key: "shortcut_history" },
   ];
 
   return (
