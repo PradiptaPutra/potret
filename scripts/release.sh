@@ -36,8 +36,14 @@ DMG="${OUT_DIR}/${APP_NAME}_${VERSION}_universal.dmg"
 # across updates; fall back to ad-hoc if scripts/setup-signing-cert.sh wasn't run.
 SIGN_ID="-"
 # Self-signed certs are untrusted, so they don't appear under `-v`; list without it.
+# Also verify codesign can actually USE the key (authorized via setup-signing-cert.sh);
+# otherwise fall back to ad-hoc so the build never fails on an unauthorized key.
 if security find-identity -p codesigning 2>/dev/null | grep -qF "Potret Self-Signed"; then
-  SIGN_ID="Potret Self-Signed"
+  _probe="$(mktemp -d)"; cp /bin/echo "$_probe/p"
+  if codesign --force --timestamp=none --sign "Potret Self-Signed" "$_probe/p" >/dev/null 2>&1; then
+    SIGN_ID="Potret Self-Signed"
+  fi
+  rm -rf "$_probe"
 fi
 
 echo "▸ Building universal app (Intel + Apple Silicon) — this takes a few minutes…"
