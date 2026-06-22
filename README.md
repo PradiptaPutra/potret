@@ -4,7 +4,7 @@
   <p><strong>A free, open-source screenshot & annotation tool for macOS.</strong></p>
   <p>Inspired by CleanShot X — without the price tag.</p>
   <p>
-    <a href="https://tiptap.gg/dipta"><img src="https://img.shields.io/badge/%E2%98%95%20Support-Potret-FF9F0A?style=flat-square" alt="Support Potret" /></a>
+    <a href="https://tiptap.gg/dipta"><img src="https://img.shields.io/badge/%E2%98%95-Fund%20my%20Claude%20Code-FF9F0A?style=flat-square" alt="Buy me a coffee" /></a>
   </p>
 </div>
 
@@ -113,12 +113,15 @@ src-tauri/src/lib.rs  main Rust entry — capture pipeline + Tauri commands
 
 ## Support
 
-Potret is free and open-source — no paywall, no subscription. If it saves you the
-cost of a paid screenshot app, you can support development here:
+Potret is 100% free and open-source. My Claude Code subscription, however, is **not**. 😅
 
-**[☕ Buy me a coffee — tiptap.gg/dipta](https://tiptap.gg/dipta)**
+This whole app was vibe-coded by an AI that bills me by the token, so every coffee
+literally keeps the prompts flowing (and the developer fed). If Potret saved you the
+price of a paid screenshot app, consider tossing a coin to your developer:
 
-Every bit helps keep it maintained. Thank you 🙏
+**[☕ Buy me a coffee — or a month of Claude Code — at tiptap.gg/dipta](https://tiptap.gg/dipta)**
+
+Totally optional, it's free forever either way. But my token counter is judging me. 🙏
 
 ## Contributing
 
