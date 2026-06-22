@@ -1171,6 +1171,17 @@ async fn close_pinned(
 
 #[tauri::command]
 async fn save_image(data: String, path: String) -> Result<(), String> {
+    // The path comes from the native Save dialog (user-chosen), but harden anyway:
+    // only ever write image files, so a compromised webview can't use this command
+    // to overwrite a shell rc / LaunchAgent / config file.
+    let ext_ok = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg"))
+        .unwrap_or(false);
+    if !ext_ok {
+        return Err("Refusing to save: path must end in .png, .jpg, or .jpeg".into());
+    }
     let bytes = general_purpose::STANDARD
         .decode(&data)
         .map_err(|e| e.to_string())?;
