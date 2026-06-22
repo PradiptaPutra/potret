@@ -1309,6 +1309,9 @@ async fn open_capture_selector(app: AppHandle) -> Result<(), String> {
         y: mon_y,
     }));
     // Frontend resets state then shows the window — do NOT show() here (avoids stale-selection flash).
+    // Pre-set the native crosshair so it's ready the instant the frontend shows the window
+    // (CSS `cursor` alone only repaints on the next mouse move — often absent on the shortcut path).
+    let _ = win.set_cursor_icon(tauri::CursorIcon::Crosshair);
     let _ = win.emit("selector-activate", PopupPendingData { capture_id });
     Ok(())
 }
@@ -1478,6 +1481,28 @@ async fn stage_capture_for_drag(
     let (out, ext) = encode_for_output(&bytes, &config.format, config.jpeg_quality);
 
     // Dedicated temp dir, cleared each drag so the dropped file keeps a clean name
+    let drag_dir = std::env::temp_dir().join("potret_drag");
+    let _ = std::fs::remove_dir_all(&drag_dir);
+    std::fs::create_dir_all(&drag_dir).map_err(|e| e.to_string())?;
+
+    let path = drag_dir.join(render_filename(&config.filename_template, ext, 0));
+    std::fs::write(&path, &out).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+// Write a history item's full-res image to a temp file (clean name) for native drag-out.
+#[tauri::command]
+async fn stage_history_for_drag(app: AppHandle, id: String) -> Result<String, String> {
+    // Same id guard as get_history_full / delete_history_item (prevents path traversal).
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("Invalid id".into());
+    }
+    let dir = history_dir(&app)?;
+    let bytes = std::fs::read(dir.join(format!("{id}.png"))).map_err(|e| e.to_string())?;
+
+    let config = load_config_sync(&app);
+    let (out, ext) = encode_for_output(&bytes, &config.format, config.jpeg_quality);
+
     let drag_dir = std::env::temp_dir().join("potret_drag");
     let _ = std::fs::remove_dir_all(&drag_dir);
     std::fs::create_dir_all(&drag_dir).map_err(|e| e.to_string())?;
@@ -1691,8 +1716,20 @@ pub fn run() {
             close_capture_popup,
             quick_save_capture,
             stage_capture_for_drag,
+            stage_history_for_drag,
             open_main_for_edit,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running potret");
+        .build(tauri::generate_context!())
+        .expect("error while building potret")
+        .run(|_app_handle, event| {
+            // Menu-bar app: don't quit just because the last window was closed/destroyed
+            // (e.g. closing a pinned screenshot). Tauri's default is to exit when the last
+            // window goes away — block that. The only intended quit is the tray "Quit",
+            // which calls app.exit(0): that arrives with code = Some(0) and is NOT blocked.
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                if code.is_none() {
+                    api.prevent_exit();
+                }
+            }
+        });
 }

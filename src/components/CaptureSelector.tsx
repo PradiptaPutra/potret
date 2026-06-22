@@ -48,6 +48,11 @@ export default function CaptureSelector() {
     await w.show();
     if (activationId.current !== id) return;
     await Promise.allSettled([nextOffset, w.setFocus()]);
+    // Re-assert the native crosshair AFTER show()+focus: NSCursor only sticks while the window
+    // is key, and CSS `cursor` won't repaint until the pointer moves (often it doesn't on the
+    // keyboard-shortcut path) — so this makes the crosshair deterministic.
+    if (activationId.current !== id) return;
+    void w.setCursorIcon("crosshair").catch(() => {});
   }
 
   // Reset the cursor to the arrow BEFORE hiding so macOS doesn't leave the crosshair "stuck".

@@ -1,4 +1,6 @@
 import { Copy, Trash2, Pencil, Camera, Pin, ImageIcon } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { startDrag } from "@crabnebula/tauri-plugin-drag";
 import { HistoryItem } from "../App";
 import { formatRelativeTime } from "../utils/time";
 
@@ -173,6 +175,17 @@ function HistoryCard({
 }) {
   const size = formatSize(item.fileSize);
 
+  async function handleDragOut(e: React.DragEvent) {
+    e.preventDefault();  // cancel the HTML5 drag; use a native OS file drag instead
+    e.stopPropagation(); // don't let the card treat this as a click (edit)
+    try {
+      const path = await invoke<string>("stage_history_for_drag", { id: item.id });
+      await startDrag({ item: [path], icon: path });
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   return (
     <div
       className="group relative cursor-pointer"
@@ -203,7 +216,10 @@ function HistoryCard({
           <img
             src={`data:image/png;base64,${item.thumbnail}`}
             alt="Screenshot"
-            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+            title="Drag to another app"
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", cursor: "grab" }}
+            draggable
+            onDragStart={handleDragOut}
           />
         ) : (
           <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
