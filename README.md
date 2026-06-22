@@ -3,6 +3,9 @@
   <h1>Potret</h1>
   <p><strong>A free, open-source screenshot & annotation tool for macOS.</strong></p>
   <p>Inspired by CleanShot X — without the price tag.</p>
+  <p>
+    <a href="https://tiptap.gg/dipta"><img src="https://img.shields.io/badge/%E2%98%95%20Support-Potret-FF9F0A?style=flat-square" alt="Support Potret" /></a>
+  </p>
 </div>
 
 ---
@@ -108,6 +111,15 @@ src-tauri/            Rust backend (capture commands, windows, history, config)
 src-tauri/src/lib.rs  main Rust entry — capture pipeline + Tauri commands
 ```
 
+## Support
+
+Potret is free and open-source — no paywall, no subscription. If it saves you the
+cost of a paid screenshot app, you can support development here:
+
+**[☕ Buy me a coffee — tiptap.gg/dipta](https://tiptap.gg/dipta)**
+
+Every bit helps keep it maintained. Thank you 🙏
+
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and the
@@ -116,7 +128,7 @@ bug reports and small fixes can go straight to a PR.
 
 ## Status
 
-Early but usable (v0.1), macOS only. Expect some rough edges — issues and PRs appreciated.
+Early but usable (v0.2), macOS only. Expect some rough edges — issues and PRs appreciated.
 
 ## License
 
