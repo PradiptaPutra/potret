@@ -32,6 +32,14 @@ APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/${APP_NAME}.ap
 OUT_DIR="dist-dmg"
 DMG="${OUT_DIR}/${APP_NAME}_${VERSION}_universal.dmg"
 
+# Prefer a stable self-signed identity so macOS Screen Recording permission persists
+# across updates; fall back to ad-hoc if scripts/setup-signing-cert.sh wasn't run.
+SIGN_ID="-"
+# Self-signed certs are untrusted, so they don't appear under `-v`; list without it.
+if security find-identity -p codesigning 2>/dev/null | grep -qF "Potret Self-Signed"; then
+  SIGN_ID="Potret Self-Signed"
+fi
+
 echo "▸ Building universal app (Intel + Apple Silicon) — this takes a few minutes…"
 # Tauri's .dmg bundling step fails without AppleScript access; the .app still
 # builds fine, so don't abort on that — we make the .dmg ourselves below.
@@ -39,14 +47,19 @@ npm run tauri build -- --target universal-apple-darwin || true
 
 [ -d "$APP" ] || { echo "✗ Build did not produce ${APP}"; exit 1; }
 
-echo "▸ Deep re-signing the app (repairs the broken universal signature)…"
-codesign --force --deep --sign - "$APP"
+if [ "$SIGN_ID" = "-" ]; then
+  echo "▸ Deep re-signing the app (ad-hoc — Screen Recording permission resets per update;"
+  echo "  run ./scripts/setup-signing-cert.sh once to make it persist)…"
+else
+  echo "▸ Deep re-signing with \"$SIGN_ID\" (stable identity → permission persists across updates)…"
+fi
+codesign --force --deep --sign "$SIGN_ID" "$APP"
 codesign -v --deep --strict "$APP" >/dev/null && echo "  ✓ signature valid"
 
 echo "▸ Staging .dmg contents…"
 STAGE="$(mktemp -d)"
 cp -R "$APP" "${STAGE}/${APP_NAME}.app"
-codesign --force --deep --sign - "${STAGE}/${APP_NAME}.app"   # re-sign the copy too
+codesign --force --deep --sign "$SIGN_ID" "${STAGE}/${APP_NAME}.app"   # re-sign the copy too
 ln -s /Applications "${STAGE}/Applications"
 cat > "${STAGE}/① OPEN ME FIRST.txt" <<'GUIDE'
 HOW TO INSTALL & OPEN POTRET
