@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { Loader2, Settings } from "lucide-react";
 import { HistoryItem } from "../App";
 import { AppConfig, formatShortcut } from "../utils";
@@ -61,6 +63,11 @@ export default function CaptureHome({
   onBackgroundHistory,
   onSettings,
 }: Props) {
+  // Show the real app version (from tauri.conf) so the footer never goes stale.
+  const [version, setVersion] = useState("");
+  useEffect(() => {
+    getVersion().then(setVersion).catch(() => {});
+  }, []);
   const modes = [
     { key: "area"       as const, Icon: AreaIcon,       label: "Area",       desc: "Select a region",  shortcut: formatShortcut(config.shortcut_area) },
     { key: "window"     as const, Icon: WindowIcon,     label: "Window",     desc: "Click any window", shortcut: formatShortcut(config.shortcut_window) },
@@ -151,7 +158,7 @@ export default function CaptureHome({
           display: "flex", alignItems: "center", justifyContent: "space-between",
         }}>
           <span style={{ fontSize: 10, color: "var(--text-tertiary)" }}>
-            v0.1.0
+            {version ? `v${version}` : ""}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button

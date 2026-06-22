@@ -5,6 +5,7 @@
   "windows": ["main", "capture-popup", "capture-selector", "history"],
   "permissions": [
     "core:default",
+    "core:app:allow-version",
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
