@@ -6,5 +6,11 @@
 	<string>Potret needs screen recording access to capture screenshots.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Potret uses Apple Events to copy images to the clipboard.</string>
+	<!-- Declare a menu-bar agent so macOS keeps it resident and doesn't reap it when
+	     idle with no windows (previously it only set the accessory policy at runtime). -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
 </dict>
 </plist>
