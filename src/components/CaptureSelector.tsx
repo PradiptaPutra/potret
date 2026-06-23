@@ -12,6 +12,7 @@ function norm(x1: number, y1: number, x2: number, y2: number): Rect {
 export default function CaptureSelector() {
   const [rect, setRect] = useState<Rect | null>(null);
   const [cursor, setCursor] = useState<"crosshair" | "default">("crosshair");
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
   const fired = useRef(false); // prevent double-fire on mouseup
   const start = useRef({ x: 0, y: 0 });
@@ -48,11 +49,9 @@ export default function CaptureSelector() {
     await w.show();
     if (activationId.current !== id) return;
     await Promise.allSettled([nextOffset, w.setFocus()]);
-    // Re-assert the native crosshair AFTER show()+focus: NSCursor only sticks while the window
-    // is key, and CSS `cursor` won't repaint until the pointer moves (often it doesn't on the
-    // keyboard-shortcut path) — so this makes the crosshair deterministic.
-    if (activationId.current !== id) return;
-    void w.setCursorIcon("crosshair").catch(() => {});
+    // No native cursor call here: the OS crosshair is unreliable on the shortcut path (it only
+    // repaints for the key window on a mouse move). We hide the OS cursor and draw our own
+    // crosshair instead — see the render below — so it's always visible immediately.
   }
 
   // Reset the cursor to the arrow BEFORE hiding so macOS doesn't leave the crosshair "stuck".
@@ -62,6 +61,7 @@ export default function CaptureSelector() {
     fired.current = false;
     setRect(null);
     setCursor("default");
+    setCursorPos(null);
     await getCurrentWindow().hide();
   }
 
@@ -79,8 +79,11 @@ export default function CaptureSelector() {
 
     // Each time Rust shows the persistent selector it emits this — reset drag state + refocus
     let unlisten: (() => void) | undefined;
-    listen<{ captureId: number }>("selector-activate", (event) => {
+    listen<{ captureId: number; cursorX: number; cursorY: number }>("selector-activate", (event) => {
       captureId.current = event.payload.captureId;
+      // Seed the crosshair at the current cursor position so it's drawn correctly the instant
+      // the overlay shows — before any pointermove (which may never come on the shortcut path).
+      setCursorPos({ x: event.payload.cursorX, y: event.payload.cursorY });
       void resetState();
     }).then((fn) => { unlisten = fn; });
 
@@ -103,6 +106,11 @@ export default function CaptureSelector() {
     setRect(norm(start.current.x, start.current.y, e.clientX, e.clientY));
   }
 
+  // Track the pointer to drive the self-drawn crosshair (works whether or not we're dragging).
+  function onPointerMove(e: React.PointerEvent) {
+    setCursorPos({ x: e.clientX, y: e.clientY });
+  }
+
   async function onMouseUp(e: React.MouseEvent) {
     if (!dragging.current || fired.current) return;
     dragging.current = false;
@@ -123,6 +131,7 @@ export default function CaptureSelector() {
     // remains for the next show and the crosshair doesn't stick.
     setRect(null);
     setCursor("default");
+    setCursorPos(null);
     const hideWindow = getCurrentWindow().hide().catch(() => {});
 
     // Rust hides the selector, waits, then screenshots + crops.
@@ -166,14 +175,23 @@ export default function CaptureSelector() {
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseLeave}
+      onPointerMove={onPointerMove}
       style={{
         position: "fixed", inset: 0,
-        cursor,
+        cursor: cursor === "crosshair" ? "none" : "default", // hide OS arrow; we draw our own crosshair
         userSelect: "none", WebkitUserSelect: "none",
         overflow: "hidden",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
       }}
     >
+      {/* Self-drawn crosshair — always visible the instant the overlay shows, regardless of
+          OS cursor state. Hidden once a selection rectangle is being drawn. */}
+      {cursorPos && !rect && (
+        <>
+          <div style={{ position: "absolute", top: 0, left: cursorPos.x, width: 1, height: sh, background: "rgba(255,255,255,0.85)", mixBlendMode: "difference", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", top: cursorPos.y, left: 0, width: sw, height: 1, background: "rgba(255,255,255,0.85)", mixBlendMode: "difference", pointerEvents: "none" }} />
+        </>
+      )}
       {rect && rect.w > 2 && rect.h > 2 && (
         <>
           {/* Subtle tint outside selection */}

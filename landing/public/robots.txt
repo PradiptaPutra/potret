@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://potret.vercel.app/sitemap.xml

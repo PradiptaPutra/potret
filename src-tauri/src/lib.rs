@@ -138,6 +138,14 @@ struct PopupPendingData {
     capture_id: u64,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SelectorActivateData {
+    capture_id: u64,
+    cursor_x: f64, // logical px, relative to the overlay's top-left
+    cursor_y: f64,
+}
+
 fn begin_capture(app: &AppHandle) -> u64 {
     let Some(state) = app.try_state::<CapturePopupInfo>() else {
         return 0;
@@ -1320,10 +1328,31 @@ async fn open_capture_selector(app: AppHandle) -> Result<(), String> {
         y: mon_y,
     }));
     // Frontend resets state then shows the window — do NOT show() here (avoids stale-selection flash).
-    // Pre-set the native crosshair so it's ready the instant the frontend shows the window
-    // (CSS `cursor` alone only repaints on the next mouse move — often absent on the shortcut path).
-    let _ = win.set_cursor_icon(tauri::CursorIcon::Crosshair);
-    let _ = win.emit("selector-activate", PopupPendingData { capture_id });
+    // Pass the current cursor position (relative to the overlay's top-left, logical px) so the
+    // frontend can draw its OWN crosshair there immediately. The OS crosshair is unreliable on the
+    // global-shortcut path (it only repaints for the key window on a mouse move), so the overlay
+    // hides the OS cursor and draws its own — no dependence on OS cursor state.
+    let (cursor_x, cursor_y) = app
+        .cursor_position()
+        .ok()
+        .and_then(|p| {
+            app.monitor_from_point(p.x, p.y)
+                .ok()
+                .flatten()
+                .map(|m| {
+                    let sf = m.scale_factor();
+                    (p.x / sf - mon_x, p.y / sf - mon_y)
+                })
+        })
+        .unwrap_or((sw / 2.0, sh / 2.0));
+    let _ = win.emit(
+        "selector-activate",
+        SelectorActivateData {
+            capture_id,
+            cursor_x,
+            cursor_y,
+        },
+    );
     Ok(())
 }
 

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/apertureshader.tsx","./src/components/grain.tsx","./src/components/logo.tsx","./src/components/nav.tsx","./src/lib/usereveal.ts","./src/sections/download.tsx","./src/sections/features.tsx","./src/sections/footer.tsx","./src/sections/hero.tsx","./src/sections/support.tsx","./src/sections/workflow.tsx"],"version":"5.8.3"}

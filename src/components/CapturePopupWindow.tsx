@@ -189,6 +189,12 @@ export default function CapturePopupWindow() {
     fbTimer.current = setTimeout(() => setFeedback(null), 1800);
   }
 
+  // Show a confirmation, then close the popup — its job is done after a terminal action.
+  function flashThenDismiss(msg: string) {
+    flash(msg);
+    setTimeout(() => dismiss(), 700);
+  }
+
   function dismiss() {
     if (!capture || exiting) return;
     setExiting(true); // play the exit animation, then actually close
@@ -201,14 +207,14 @@ export default function CapturePopupWindow() {
     const full = await invoke<string | null>("get_capture_full_data", { captureId: capture.captureId });
     if (!full) return;
     await invoke("copy_to_clipboard", { data: full });
-    flash("Copied!");
+    flashThenDismiss("Copied!");
   }
 
   async function handleSave() {
     try {
       if (!capture) return;
       await invoke<string>("quick_save_capture", { captureId: capture.captureId });
-      flash("Saved!");
+      flashThenDismiss("Saved!");
     } catch {
       flash("Set a save folder in Settings", false);
     }
