@@ -184,13 +184,16 @@ export default function CaptureSelector() {
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
       }}
     >
-      {/* Self-drawn crosshair — always visible the instant the overlay shows, regardless of
-          OS cursor state. Hidden once a selection rectangle is being drawn. */}
+      {/* Small self-drawn crosshair at the pointer — visible the instant the overlay shows
+          (reliable, unlike the OS cursor), but compact (not full-screen lines). */}
       {cursorPos && !rect && (
-        <>
-          <div style={{ position: "absolute", top: 0, left: cursorPos.x, width: 1, height: sh, background: "rgba(255,255,255,0.85)", mixBlendMode: "difference", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", top: cursorPos.y, left: 0, width: sw, height: 1, background: "rgba(255,255,255,0.85)", mixBlendMode: "difference", pointerEvents: "none" }} />
-        </>
+        <div style={{
+          position: "absolute", left: cursorPos.x, top: cursorPos.y,
+          width: 20, height: 20, transform: "translate(-50%, -50%)", pointerEvents: "none",
+        }}>
+          <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", marginLeft: -0.5, background: "rgba(255,255,255,0.9)", mixBlendMode: "difference" }} />
+          <div style={{ position: "absolute", top: "50%", left: 0, height: 1, width: "100%", marginTop: -0.5, background: "rgba(255,255,255,0.9)", mixBlendMode: "difference" }} />
+        </div>
       )}
       {rect && rect.w > 2 && rect.h > 2 && (
         <>
