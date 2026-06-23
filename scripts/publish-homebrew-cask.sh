@@ -48,6 +48,15 @@ cask "potret" do
 
   app "Potret.app"
 
+  # Potret isn't Apple-notarized, so after install: strip quarantine (no Gatekeeper
+  # prompt) and register with LaunchServices (so it shows in Launchpad / Spotlight).
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Potret.app"]
+    system_command "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                   args: ["-f", "#{appdir}/Potret.app"]
+  end
+
   # \`brew uninstall --zap potret\` removes the app AND all of its data.
   zap trash: [
     "~/Library/Application Support/com.potret.app",
@@ -67,12 +76,13 @@ cat > "${WORK}/README.md" <<MD
 Homebrew tap for [Potret](https://github.com/${REPO}) — a free, open-source macOS screenshot & annotation tool.
 
 \`\`\`bash
-brew install --cask --no-quarantine PradiptaPutra/tap/potret   # clean install, no Gatekeeper prompt
-brew upgrade --cask potret                                     # update
-brew uninstall --zap potret                                    # uninstall + remove all data
+brew install --cask PradiptaPutra/tap/potret   # install (auto-handles Gatekeeper + Launchpad)
+brew upgrade --cask potret                     # update
+brew uninstall --zap potret                    # uninstall + remove all data
 \`\`\`
 
-\`--no-quarantine\` skips the macOS Gatekeeper warning (Potret is open-source and not Apple-notarized).
+The cask strips the quarantine flag and registers the app after install, so it opens without
+the Gatekeeper prompt and appears in Launchpad — even though Potret isn't Apple-notarized.
 MD
 
 git -C "$WORK" add .
@@ -81,4 +91,4 @@ git -C "$WORK" push -u origin main
 
 echo ""
 echo "✓ Tap published. Users install with:"
-echo "    brew install --cask --no-quarantine PradiptaPutra/tap/potret"
+echo "    brew install --cask PradiptaPutra/tap/potret"

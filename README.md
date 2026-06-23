@@ -17,10 +17,10 @@ Potret lives in your menu bar. Take a screenshot and a floating **Quick Access**
 ### Homebrew (recommended — cleanest install)
 
 ```bash
-brew install --cask --no-quarantine PradiptaPutra/tap/potret
+brew install --cask PradiptaPutra/tap/potret
 ```
 
-`--no-quarantine` skips the macOS Gatekeeper warning (Potret is open-source and not Apple-notarized), so it just opens. Update with `brew upgrade --cask potret`; uninstall cleanly (app **and** all its data) with `brew uninstall --zap potret`.
+The cask strips the quarantine flag and registers the app for you, so it opens without the macOS Gatekeeper prompt (Potret is open-source and not Apple-notarized) and shows up in Launchpad. Update with `brew upgrade --cask potret`; uninstall cleanly (app **and** all its data) with `brew uninstall --zap potret`.
 
 ### Direct download (.dmg)
 
