@@ -184,24 +184,39 @@ export default function CaptureSelector() {
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
       }}
     >
-      {/* Small self-drawn crosshair at the pointer — visible the instant the overlay shows
-          (reliable, unlike the OS cursor), but compact (not full-screen lines). */}
+      {/* Clean amber crosshair at the pointer with a center gap for pixel precision. Self-drawn
+          (reliable, unlike the OS cursor) and branded — not the generic macOS crosshair. */}
       {cursorPos && !rect && (
         <div style={{
           position: "absolute", left: cursorPos.x, top: cursorPos.y,
-          width: 20, height: 20, transform: "translate(-50%, -50%)", pointerEvents: "none",
+          width: 28, height: 28, transform: "translate(-50%, -50%)", pointerEvents: "none",
         }}>
-          <div style={{ position: "absolute", left: "50%", top: 0, width: 1, height: "100%", marginLeft: -0.5, background: "rgba(255,255,255,0.9)", mixBlendMode: "difference" }} />
-          <div style={{ position: "absolute", top: "50%", left: 0, height: 1, width: "100%", marginTop: -0.5, background: "rgba(255,255,255,0.9)", mixBlendMode: "difference" }} />
+          <div style={{ position: "absolute", left: "50%", top: 0, width: 1.5, height: 10, marginLeft: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
+          <div style={{ position: "absolute", left: "50%", bottom: 0, width: 1.5, height: 10, marginLeft: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
+          <div style={{ position: "absolute", top: "50%", left: 0, height: 1.5, width: 10, marginTop: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
+          <div style={{ position: "absolute", top: "50%", right: 0, height: 1.5, width: 10, marginTop: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
+        </div>
+      )}
+
+      {/* Helper hint — shows before a selection is drawn, disappears once dragging. */}
+      {!rect && (
+        <div style={{
+          position: "absolute", top: 28, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(20,20,22,0.66)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+          borderRadius: 9, padding: "7px 14px", color: "rgba(255,255,255,0.92)",
+          fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", pointerEvents: "none",
+          boxShadow: "0 6px 20px rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.10)",
+        }}>
+          Drag to capture an area&nbsp;&nbsp;<span style={{ opacity: 0.55 }}>Esc to cancel</span>
         </div>
       )}
       {rect && rect.w > 2 && rect.h > 2 && (
         <>
           {/* Subtle tint outside selection */}
-          <div style={{ position: "absolute", top: 0, left: 0, width: sw, height: rect.y, background: "rgba(0,0,0,0.18)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", top: rect.y + rect.h, left: 0, width: sw, height: sh - rect.y - rect.h, background: "rgba(0,0,0,0.18)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", top: rect.y, left: 0, width: rect.x, height: rect.h, background: "rgba(0,0,0,0.18)", pointerEvents: "none" }} />
-          <div style={{ position: "absolute", top: rect.y, left: rect.x + rect.w, width: sw - rect.x - rect.w, height: rect.h, background: "rgba(0,0,0,0.18)", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", top: 0, left: 0, width: sw, height: rect.y, background: "rgba(0,0,0,0.32)", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", top: rect.y + rect.h, left: 0, width: sw, height: sh - rect.y - rect.h, background: "rgba(0,0,0,0.32)", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", top: rect.y, left: 0, width: rect.x, height: rect.h, background: "rgba(0,0,0,0.32)", pointerEvents: "none" }} />
+          <div style={{ position: "absolute", top: rect.y, left: rect.x + rect.w, width: sw - rect.x - rect.w, height: rect.h, background: "rgba(0,0,0,0.32)", pointerEvents: "none" }} />
 
           {/* Amber selection border */}
           <div style={{

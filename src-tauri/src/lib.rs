@@ -836,9 +836,11 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            shortcut_area: "CommandOrControl+Shift+4".into(),
-            shortcut_window: "CommandOrControl+Shift+5".into(),
-            shortcut_fullscreen: "CommandOrControl+Shift+3".into(),
+            // NOT Cmd+Shift+3/4/5 — those are macOS's built-in screenshot shortcuts, so macOS
+            // intercepts them and Potret's overlay never shows. Use Cmd+Option instead.
+            shortcut_area: "CommandOrControl+Alt+4".into(),
+            shortcut_window: "CommandOrControl+Alt+5".into(),
+            shortcut_fullscreen: "CommandOrControl+Alt+3".into(),
             save_path: None,
             format: default_format(),
             jpeg_quality: default_jpeg_quality(),
@@ -846,6 +848,28 @@ impl Default for AppConfig {
             shortcut_history: default_shortcut_history(),
         }
     }
+}
+
+// macOS's built-in screenshot shortcuts are Cmd+Shift+3/4/5; our old defaults collided with them,
+// so macOS intercepted the keypress and Potret's overlay never appeared. Move any config still
+// holding the old colliding defaults onto Cmd+Option+3/4/5. Returns true if anything changed.
+fn migrate_colliding_shortcuts(c: &mut AppConfig) -> bool {
+    let mut changed = false;
+    for (cur, old, new) in [
+        (&mut c.shortcut_area, "CommandOrControl+Shift+4", "CommandOrControl+Alt+4"),
+        (&mut c.shortcut_window, "CommandOrControl+Shift+5", "CommandOrControl+Alt+5"),
+        (
+            &mut c.shortcut_fullscreen,
+            "CommandOrControl+Shift+3",
+            "CommandOrControl+Alt+3",
+        ),
+    ] {
+        if cur == old {
+            *cur = new.to_string();
+            changed = true;
+        }
+    }
+    changed
 }
 
 // Render a filename from a template, substituting {date} {time} {unix} {seq} and sanitizing.
@@ -899,7 +923,13 @@ async fn get_config(app: AppHandle) -> Result<AppConfig, String> {
         return Ok(AppConfig::default());
     }
     let s = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&s).map_err(|e| e.to_string())
+    let mut config: AppConfig = serde_json::from_str(&s).map_err(|e| e.to_string())?;
+    if migrate_colliding_shortcuts(&mut config) {
+        if let Ok(out) = serde_json::to_string_pretty(&config) {
+            let _ = std::fs::write(&path, out);
+        }
+    }
+    Ok(config)
 }
 
 #[tauri::command]
@@ -920,10 +950,17 @@ fn load_config_sync(app: &AppHandle) -> AppConfig {
     if !path.exists() {
         return AppConfig::default();
     }
-    std::fs::read_to_string(&path)
+    let mut config: AppConfig = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Persist the migration so the old colliding shortcut is gone for good and Settings reflects it.
+    if migrate_colliding_shortcuts(&mut config) {
+        if let Ok(out) = serde_json::to_string_pretty(&config) {
+            let _ = std::fs::write(&path, out);
+        }
+    }
+    config
 }
 
 fn parse_shortcut_str(s: &str) -> Result<tauri_plugin_global_shortcut::Shortcut, String> {
