@@ -1715,13 +1715,6 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            // With LSUIElement the app launches as an agent (not auto-activated), so show +
-            // focus the main window on launch so first-run users still see it.
-            if let Some(w) = app.get_webview_window("main") {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-
             // Pre-create the transparent overlay windows (hidden) so captures are
             // instant and flash-free — see precreate_overlay_windows for the why.
             precreate_overlay_windows(app.handle());

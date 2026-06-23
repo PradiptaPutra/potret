@@ -6,11 +6,12 @@
 	<string>Potret needs screen recording access to capture screenshots.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Potret uses Apple Events to copy images to the clipboard.</string>
-	<!-- Declare a menu-bar agent so macOS keeps it resident and doesn't reap it when
-	     idle with no windows (previously it only set the accessory policy at runtime). -->
-	<key>LSUIElement</key>
-	<true/>
+	<!-- Opt out of automatic/sudden termination so macOS doesn't reap the idle menu-bar app.
+	     We deliberately do NOT set LSUIElement: as an agent the app cannot bring its capture
+	     overlay/popup to the front when triggered by the global shortcut. -->
 	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
 	<false/>
 </dict>
 </plist>
