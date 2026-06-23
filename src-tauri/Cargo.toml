@@ -1,6 +1,6 @@
 [package]
 name = "potret"
-version = "0.2.8"
+version = "0.2.9"
 description = "Potret — open source screenshot & annotation tool"
 authors = ["Potret Contributors"]
 license = "MIT"

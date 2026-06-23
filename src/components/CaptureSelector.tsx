@@ -184,17 +184,22 @@ export default function CaptureSelector() {
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
       }}
     >
-      {/* Clean amber crosshair at the pointer with a center gap for pixel precision. Self-drawn
-          (reliable, unlike the OS cursor) and branded — not the generic macOS crosshair. */}
+      {/* Compact ring + center dot reticle at the pointer (camera-focus style). Self-drawn so
+          it's reliable (unlike the OS cursor) and branded amber. */}
       {cursorPos && !rect && (
         <div style={{
           position: "absolute", left: cursorPos.x, top: cursorPos.y,
-          width: 28, height: 28, transform: "translate(-50%, -50%)", pointerEvents: "none",
+          width: 16, height: 16, transform: "translate(-50%, -50%)", pointerEvents: "none",
         }}>
-          <div style={{ position: "absolute", left: "50%", top: 0, width: 1.5, height: 10, marginLeft: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
-          <div style={{ position: "absolute", left: "50%", bottom: 0, width: 1.5, height: 10, marginLeft: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
-          <div style={{ position: "absolute", top: "50%", left: 0, height: 1.5, width: 10, marginTop: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
-          <div style={{ position: "absolute", top: "50%", right: 0, height: 1.5, width: 10, marginTop: -0.75, background: AMBER, boxShadow: "0 0 2px rgba(0,0,0,0.9)" }} />
+          <div style={{
+            position: "absolute", inset: 0, borderRadius: "50%",
+            border: `1px solid ${AMBER}`,
+            boxShadow: "0 0 0 0.5px rgba(0,0,0,0.5), inset 0 0 0 0.5px rgba(0,0,0,0.4)",
+          }} />
+          <div style={{
+            position: "absolute", left: "50%", top: "50%", width: 2.5, height: 2.5,
+            marginLeft: -1.25, marginTop: -1.25, borderRadius: "50%", background: AMBER,
+          }} />
         </div>
       )}
 
