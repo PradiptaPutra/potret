@@ -299,7 +299,7 @@ export default function CapturePopupWindow() {
             position: "absolute", inset: 0,
             opacity: hovered ? 1 : 0,
             transition: "opacity var(--dur-fast) var(--ease-out)",
-            pointerEvents: hovered ? "auto" : "none",
+            pointerEvents: "none", // never block the image; only the buttons below opt back in
           }}
         >
           {/* Vignette so corner buttons are legible over any image */}
@@ -312,10 +312,10 @@ export default function CapturePopupWindow() {
           />
 
           {/* ── 4 corner buttons ─────────────────────────────────────────── */}
-          <CornerBtn style={{ top: 9, left: 9 }}     icon={Copy}        label="Copy"       onClick={handleCopy}       />
-          <CornerBtn style={{ top: 9, right: 9 }}    icon={Download}    label="Save"       onClick={handleSave}       />
-          <CornerBtn style={{ bottom: 9, left: 9 }}  icon={Pencil}      label="Annotate"   onClick={handleEdit}       />
-          <CornerBtn style={{ bottom: 9, right: 9 }} icon={UploadCloud} label="Background"  onClick={handleBackground} />
+          <CornerBtn style={{ top: 9, left: 9 }}     icon={Copy}        label="Copy"       onClick={handleCopy}       active={hovered} />
+          <CornerBtn style={{ top: 9, right: 9 }}    icon={Download}    label="Save"       onClick={handleSave}       active={hovered} />
+          <CornerBtn style={{ bottom: 9, left: 9 }}  icon={Pencil}      label="Annotate"   onClick={handleEdit}       active={hovered} />
+          <CornerBtn style={{ bottom: 9, right: 9 }} icon={UploadCloud} label="Background"  onClick={handleBackground} active={hovered} />
 
           {/* ── Dismiss circle, top-center ───────────────────────────────── */}
           <button
@@ -332,6 +332,7 @@ export default function CapturePopupWindow() {
               display: "flex", alignItems: "center", justifyContent: "center",
               color: "rgba(255,255,255,0.65)",
               transition: "background 0.12s, color 0.12s",
+              pointerEvents: hovered ? "auto" : "none",
               zIndex: 11,
             }}
             onMouseEnter={e => {
@@ -432,11 +433,13 @@ function CornerBtn({
   icon: Icon,
   label,
   onClick,
+  active,
 }: {
   style: React.CSSProperties;
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
   onClick: () => void;
+  active: boolean;
 }) {
   return (
     <button
@@ -458,6 +461,7 @@ function CornerBtn({
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
         transition: "background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
+        pointerEvents: active ? "auto" : "none",
         zIndex: 10,
         letterSpacing: "-0.01em",
         whiteSpace: "nowrap",
