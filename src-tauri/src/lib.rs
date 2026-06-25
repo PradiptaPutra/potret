@@ -220,10 +220,10 @@ fn store_and_open_popup(
         });
     }
 
-    let win_w = 320.0_f64;
-    // Image fills full width; height clamped to [120, 260] matching the frontend formula
-    let img_h = (win_w * h as f64 / w as f64).min(260.0).max(120.0);
-    let win_h = img_h + 3.0; // +3px for the progress bar
+    // Glass panel is a fixed-size card (screenshot is a blurred backdrop, not the content),
+    // so the window no longer scales with the capture's aspect ratio.
+    let win_w = 300.0_f64;
+    let win_h = 210.0_f64; // 207px panel body + 3px progress bar
 
     let (mon_x, mon_y, _mon_w, mon_h) = active_monitor_logical(app);
     let pos_x = mon_x + 20.0;
@@ -280,12 +280,12 @@ fn emit_popup_pending(app: &AppHandle, capture_id: u64) {
             return;
         }
     }
-    let default_h = 203.0_f64;
+    let default_h = 210.0_f64;
     let (mon_x, mon_y, _mon_w, mon_h) = active_monitor_logical(app);
 
     if let Some(existing) = app.get_webview_window("capture-popup") {
         let _ = existing.set_size(tauri::Size::Logical(tauri::LogicalSize {
-            width: 320.0,
+            width: 300.0,
             height: default_h,
         }));
         let _ = existing.set_position(tauri::Position::Logical(tauri::LogicalPosition {
@@ -394,7 +394,7 @@ fn precreate_overlay_windows(app: &AppHandle) {
 
     // Bottom-left quick-access popup (default size; resized per capture)
     if app.get_webview_window("capture-popup").is_none() {
-        let default_h = 203.0_f64;
+        let default_h = 210.0_f64;
         let _ =
             WebviewWindowBuilder::new(app, "capture-popup", WebviewUrl::App("index.html".into()))
                 .title("Potret")
@@ -406,7 +406,7 @@ fn precreate_overlay_windows(app: &AppHandle) {
                 .resizable(false)
                 .skip_taskbar(true)
                 .visible(false)
-                .inner_size(320.0, default_h)
+                .inner_size(300.0, default_h)
                 .position(20.0, screen_h - default_h - 80.0)
                 .build();
     }

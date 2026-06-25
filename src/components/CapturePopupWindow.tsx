@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
-import { Copy, Download, Pencil, Layers, X, Check } from "lucide-react";
+import { Pin, Pencil, UploadCloud, X, Check } from "lucide-react";
 
 interface CaptureInfo {
   captureId: number;
@@ -12,7 +12,8 @@ interface CaptureInfo {
   height: number;
 }
 
-const WIN_W = 320;
+const WIN_W = 300;
+const CONTENT_H = 207;           // panel body; +3px progress bar = 210 total window
 const AUTO_DISMISS_MS = 12000;
 
 export default function CapturePopupWindow() {
@@ -21,7 +22,6 @@ export default function CapturePopupWindow() {
   const [progress, setProgress] = useState(1);
   const [paused, setPaused] = useState(false);
   const [exiting, setExiting] = useState(false);
-  const [shellHeight, setShellHeight] = useState(200);
   const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
   const startRef = useRef(Date.now());
   const pausedAtRef = useRef<number | null>(null);
@@ -32,11 +32,6 @@ export default function CapturePopupWindow() {
   const latestCaptureIdRef = useRef(0);
   const mountedRef = useRef(true);
   const decodeTokenRef = useRef(0);
-
-  function getImageHeight(info: CaptureInfo | null) {
-    if (!info) return shellHeight;
-    return Math.min(Math.max(Math.round(WIN_W * info.height / info.width), 120), 260);
-  }
 
   function showWindow() {
     const w = getCurrentWindow();
@@ -51,19 +46,17 @@ export default function CapturePopupWindow() {
     setPaused(false);
   }
 
-  function startPending(captureId: number, nextCapture?: CaptureInfo | null) {
+  function startPending(captureId: number) {
     pendingCaptureIdRef.current = captureId;
     pendingRef.current = true;
     setPending(true);
     setExiting(false);
     setCapture(null);
-    setShellHeight(getImageHeight(nextCapture ?? capture));
     resetDismissTimer();
   }
 
   function commitCapture(info: CaptureInfo, reveal: boolean) {
     const token = ++decodeTokenRef.current;
-    const nextShellHeight = getImageHeight(info);
     const src = `data:image/png;base64,${info.data}`;
     const finalize = () => {
       if (
@@ -71,15 +64,12 @@ export default function CapturePopupWindow() {
         token !== decodeTokenRef.current ||
         info.captureId !== latestCaptureIdRef.current
       ) return;
-      setShellHeight(nextShellHeight);
       setCapture(info);
       pendingRef.current = false;
       setPending(false);
       resetDismissTimer();
       if (reveal) showWindow();
     };
-
-    setShellHeight(nextShellHeight);
 
     const im = new Image();
     if (typeof im.decode === "function") {
@@ -131,7 +121,7 @@ export default function CapturePopupWindow() {
       const info = event.payload;
       if (!info || info.captureId < latestCaptureIdRef.current) return;
       latestCaptureIdRef.current = info.captureId;
-      startPending(info.captureId, info);
+      startPending(info.captureId);
       // Guarantee the window is visible on every completed capture (shows the loading shell),
       // then swap in the decoded image. Don't depend on the earlier popup-pending show —
       // that path could race/be skipped, leaving a saved capture with no popup.
@@ -142,7 +132,7 @@ export default function CapturePopupWindow() {
     invoke<CaptureInfo | null>("get_capture_popup_data").then((info) => {
       if (!info || info.captureId < latestCaptureIdRef.current) return;
       latestCaptureIdRef.current = info.captureId;
-      startPending(info.captureId, info);
+      startPending(info.captureId);
       commitCapture(info, false);
     });
     return () => {
@@ -220,6 +210,14 @@ export default function CapturePopupWindow() {
     }
   }
 
+  async function handlePin() {
+    if (!capture) return;
+    const full = await invoke<string | null>("get_capture_full_data", { captureId: capture.captureId });
+    if (!full) return;
+    await invoke("pin_screenshot", { data: full, imgWidth: capture.width, imgHeight: capture.height });
+    flashThenDismiss("Pinned!");
+  }
+
   async function handleDragOut(e: React.DragEvent) {
     e.preventDefault(); // cancel the HTML5 drag; use a native OS file drag instead
     if (!capture) return;
@@ -255,8 +253,6 @@ export default function CapturePopupWindow() {
 
   if (!capture && !pending) return null;
 
-  const imgH = getImageHeight(capture);
-
   return (
     <div
       key={capture?.captureId ?? pendingCaptureIdRef.current}
@@ -265,12 +261,12 @@ export default function CapturePopupWindow() {
       onMouseLeave={handleMouseLeave}
       style={{
         width: WIN_W,
-        borderRadius: 16,
+        borderRadius: 26,
         overflow: "hidden",
         background: "#0a0a0b",
-        border: "1px solid rgba(255,255,255,0.10)",
+        border: "1px solid rgba(255,255,255,0.22)",
         boxShadow:
-          "0 20px 60px rgba(0,0,0,0.70), 0 4px 16px rgba(0,0,0,0.50), inset 0 1px 0 rgba(255,255,255,0.06)",
+          "0 24px 60px rgba(0,0,0,0.55), 0 2px 10px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.22)",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -278,59 +274,48 @@ export default function CapturePopupWindow() {
       }}
     >
       {capture ? (
-      <div style={{ position: "relative", width: WIN_W, height: imgH }}>
-        {/* The screenshot — drag it out to Finder / Slack / etc. */}
+      <div style={{ position: "relative", width: WIN_W, height: CONTENT_H }}>
+        {/* Frosted screenshot — also the drag-out handle (drag empty glass area to Finder / Slack) */}
         <img
           src={`data:image/png;base64,${capture.data}`}
           title="Drag to another app"
-          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", cursor: "grab" }}
+          style={{
+            position: "absolute", inset: 0,
+            width: "100%", height: "100%", objectFit: "cover",
+            filter: "blur(18px) saturate(1.2) brightness(0.9)",
+            transform: "scale(1.3)",
+            cursor: "grab",
+          }}
           draggable
           onDragStart={handleDragOut}
         />
 
-        {/* Vignette gradient so corner buttons are legible over any image */}
+        {/* Purple-grey tint over the blur — gives the glass its color, keeps pills legible */}
         <div
           style={{
             position: "absolute", inset: 0, pointerEvents: "none",
-            background:
-              "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.45) 100%)",
+            background: "linear-gradient(150deg, rgba(118,112,140,0.46), rgba(58,54,78,0.62))",
           }}
         />
 
-        {/* ── 4 corner buttons ─────────────────────────────────────────── */}
-        <CornerBtn style={{ top: 10, left: 10 }}  icon={Copy}     label="Copy"       onClick={handleCopy}       />
-        <CornerBtn style={{ top: 10, right: 10 }} icon={Download} label="Save"       onClick={handleSave}       />
-        <CornerBtn style={{ bottom: 10, left: 10  }} icon={Pencil}   label="Annotate"  onClick={handleEdit}       />
-        <CornerBtn style={{ bottom: 10, right: 10 }} icon={Layers}   label="Background" onClick={handleBackground} />
+        {/* ── 4 circular corner buttons ─────────────────────────────────── */}
+        <CircleBtn style={{ top: 14, left: 14 }}     icon={Pin}         label="Pin"        onClick={handlePin}        />
+        <CircleBtn style={{ top: 14, right: 14 }}    icon={X}           label="Dismiss"    onClick={dismiss} small    />
+        <CircleBtn style={{ bottom: 14, left: 14 }}  icon={Pencil}      label="Annotate"   onClick={handleEdit}       />
+        <CircleBtn style={{ bottom: 14, right: 14 }} icon={UploadCloud} label="Background"  onClick={handleBackground} />
 
-        {/* ── Dismiss circle, top-center ───────────────────────────────── */}
-        <button
-          onClick={dismiss}
-          title="Dismiss"
+        {/* ── Center Copy / Save pills ──────────────────────────────────── */}
+        <div
           style={{
-            position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)",
-            width: 22, height: 22, borderRadius: "50%",
-            background: "rgba(0,0,0,0.50)",
-            border: "1px solid rgba(255,255,255,0.14)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            color: "rgba(255,255,255,0.55)",
-            transition: "background 0.12s, color 0.12s",
-            zIndex: 10,
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = "rgba(255,69,58,0.75)";
-            e.currentTarget.style.color = "#fff";
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = "rgba(0,0,0,0.50)";
-            e.currentTarget.style.color = "rgba(255,255,255,0.55)";
+            position: "absolute", inset: 0,
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: 16,
+            pointerEvents: "none", // gaps stay draggable; pills re-enable below
           }}
         >
-          <X size={10} strokeWidth={2.5} />
-        </button>
+          <Pill label="Copy" onClick={handleCopy} />
+          <Pill label="Save" onClick={handleSave} />
+        </div>
 
         {/* ── Feedback toast overlay ───────────────────────────────────── */}
         {feedback && (
@@ -363,26 +348,12 @@ export default function CapturePopupWindow() {
             </div>
           </div>
         )}
-
-        {/* ── Dimensions label, bottom-center ─────────────────────────── */}
-        <div
-          style={{
-            position: "absolute", bottom: 46, left: 0, right: 0,
-            textAlign: "center",
-            fontSize: 10, fontWeight: 500,
-            color: "rgba(255,255,255,0.30)",
-            letterSpacing: "0.04em",
-            pointerEvents: "none",
-          }}
-        >
-          {capture.width.toLocaleString()} × {capture.height.toLocaleString()}
-        </div>
       </div>
       ) : (
       <div
         style={{
           width: WIN_W,
-          height: imgH,
+          height: CONTENT_H,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -396,30 +367,7 @@ export default function CapturePopupWindow() {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
           }
-          @keyframes popup-shimmer {
-            0% { transform: translateX(-130%); }
-            100% { transform: translateX(130%); }
-          }
         `}</style>
-        <div
-          style={{
-            position: "absolute",
-            inset: 18,
-            borderRadius: 14,
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)",
-              animation: "popup-shimmer 1.1s ease-in-out infinite",
-            }}
-          />
-        </div>
         <div
           style={{
             width: 42,
@@ -428,34 +376,13 @@ export default function CapturePopupWindow() {
             border: "2px solid rgba(255,255,255,0.14)",
             borderTopColor: "rgba(255,255,255,0.65)",
             animation: "popup-spin 0.8s linear infinite",
-            position: "relative",
-            zIndex: 1,
           }}
         />
-        <div
-          style={{
-            position: "absolute",
-            left: 24,
-            right: 24,
-            bottom: 18,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            color: "rgba(255,255,255,0.55)",
-            fontSize: 10,
-            fontWeight: 600,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-          }}
-        >
-          <span>{pending ? "Processing capture" : "Loading capture"}</span>
-          <span>Preparing preview</span>
-        </div>
       </div>
       )}
 
       {/* ── Auto-dismiss progress bar ──────────────────────────────────── */}
-      <div style={{ height: 3, background: "rgba(255,255,255,0.05)" }}>
+      <div style={{ height: 3, background: "rgba(255,255,255,0.10)" }}>
         <div
           style={{
             height: "100%",
@@ -469,17 +396,50 @@ export default function CapturePopupWindow() {
   );
 }
 
-/* ── Corner button ─────────────────────────────────────────────────────────── */
-function CornerBtn({
+/* ── Center pill (Copy / Save) ───────────────────────────────────────────── */
+function Pill({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        pointerEvents: "auto",
+        minWidth: 132,
+        padding: "11px 30px",
+        borderRadius: 999,
+        background: "#fafafa",
+        color: "#1c1c1e",
+        fontSize: 21,
+        fontWeight: 650,
+        letterSpacing: "-0.01em",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        border: "none",
+        cursor: "pointer",
+        boxShadow: "0 6px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.9)",
+        transition: "transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)",
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = "#ffffff")}
+      onMouseLeave={e => (e.currentTarget.style.background = "#fafafa")}
+      onMouseDown={e => (e.currentTarget.style.transform = "scale(0.97)")}
+      onMouseUp={e => (e.currentTarget.style.transform = "scale(1)")}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ── Circular corner button ──────────────────────────────────────────────── */
+function CircleBtn({
   style: posStyle,
   icon: Icon,
   label,
   onClick,
+  small,
 }: {
   style: React.CSSProperties;
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
   onClick: () => void;
+  small?: boolean;
 }) {
   return (
     <button
@@ -488,35 +448,28 @@ function CornerBtn({
       style={{
         position: "absolute",
         ...posStyle,
-        display: "flex", alignItems: "center", gap: 5,
-        padding: "5px 10px 5px 8px",
-        borderRadius: 10,
-        background: "rgba(0,0,0,0.52)",
-        backdropFilter: "blur(16px)",
-        WebkitBackdropFilter: "blur(16px)",
-        border: "1px solid rgba(255,255,255,0.16)",
-        color: "rgba(255,255,255,0.88)",
-        fontSize: 11, fontWeight: 500,
+        width: 38,
+        height: 38,
+        borderRadius: "50%",
+        background: "#fafafa",
+        border: "none",
+        color: "#2a2a2e",
         cursor: "pointer",
-        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
-        transition: "background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.30), inset 0 1px 0 rgba(255,255,255,0.9)",
+        transition: "background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
         zIndex: 10,
-        letterSpacing: "-0.01em",
       }}
       onMouseEnter={e => {
-        e.currentTarget.style.background = "rgba(255,255,255,0.18)";
-        e.currentTarget.style.borderColor = "rgba(255,255,255,0.28)";
-        e.currentTarget.style.transform = "scale(1.04)";
+        e.currentTarget.style.background = "#ffffff";
+        e.currentTarget.style.transform = "scale(1.08)";
       }}
       onMouseLeave={e => {
-        e.currentTarget.style.background = "rgba(0,0,0,0.52)";
-        e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)";
+        e.currentTarget.style.background = "#fafafa";
         e.currentTarget.style.transform = "scale(1)";
       }}
     >
-      <Icon size={13} strokeWidth={1.8} />
-      {label}
+      <Icon size={small ? 15 : 17} strokeWidth={2} />
     </button>
   );
 }
