@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { Loader2, Settings } from "lucide-react";
+import { Loader2, Settings, Image as ImageIcon } from "lucide-react";
 import { HistoryItem } from "../App";
 import { AppConfig, formatShortcut } from "../utils";
 import HistoryPanel from "./HistoryPanel";
@@ -126,6 +126,15 @@ export default function CaptureHome({
             />
           ))}
         </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: "var(--border)", margin: "8px 16px" }} />
+
+        {/* Background tool — beautify the most recent capture for sharing */}
+        <BackgroundBtn
+          disabled={!history.length}
+          onClick={() => history[0] && onBackgroundHistory(history[0])}
+        />
 
         {/* Loading / error pill */}
         {(loading || error) && (
@@ -300,6 +309,57 @@ function CaptureBtn({ Icon, label, desc, shortcut, disabled, onClick }: CaptureB
       }}>
         {shortcut}
       </kbd>
+    </button>
+  );
+}
+
+/* ── Background tool button ─────────────────────────────────────────────── */
+function BackgroundBtn({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      className="sidebar-btn"
+      onClick={onClick}
+      disabled={disabled}
+      title={disabled ? "Capture something first" : "Drop your latest screenshot on a gradient backdrop for sharing"}
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "7px 16px",
+        background: "transparent",
+        border: "none",
+        width: "100%",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.4 : 1,
+        transition: "background 0.12s",
+      }}
+    >
+      <div
+        className="capture-btn-accent"
+        style={{
+          position: "absolute", left: 0, top: 5, bottom: 5, width: 2,
+          borderRadius: 2, background: "#a78bfa", opacity: 0, transition: "opacity 0.12s",
+        }}
+      />
+      <div
+        className="capture-btn-icon"
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0, width: 16, height: 16,
+          color: "var(--text-tertiary)", transition: "color 0.12s",
+        }}
+      >
+        <ImageIcon size={16} strokeWidth={1.5} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0, textAlign: "left" }}>
+        <div className="capture-btn-label" style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", lineHeight: 1, transition: "color 0.12s" }}>
+          Background
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2, lineHeight: 1 }}>
+          Gradient backdrop for sharing
+        </div>
+      </div>
     </button>
   );
 }

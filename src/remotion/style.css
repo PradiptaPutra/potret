@@ -1,0 +1,693 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300..700,20,0..1&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap");
+
+:root {
+  --ink: #0b0a0c;
+  --ink-2: #0f0e11;
+  --surface: #141317;
+  --surface-2: #1b1a1f;
+  --bone: #f6f1e9;
+  --mist: #a8a299;
+  --faint: #6c665e;
+  --hair: rgba(246, 241, 233, 0.1);
+  --hair-2: rgba(246, 241, 233, 0.16);
+  --amber: #ff9f0a;
+  --amber-hot: #ff7a1a;
+  --ember: #f25c05;
+  --glow: #ffd08a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.bg {
+  overflow: hidden;
+  background:
+    radial-gradient(900px 620px at 58% 46%, rgba(255, 159, 10, 0.16), transparent 64%),
+    radial-gradient(1200px 800px at 50% 10%, rgba(255, 122, 26, 0.1), transparent 70%),
+    linear-gradient(180deg, #0f0e11 0%, #0b0a0c 100%);
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.045;
+  mix-blend-mode: screen;
+  background-image:
+    linear-gradient(115deg, rgba(255, 255, 255, 0.055), transparent 42%),
+    repeating-linear-gradient(0deg, rgba(246, 241, 233, 0.09) 0 1px, transparent 1px 5px);
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 260px 84px rgba(0, 0, 0, 0.82);
+}
+
+.apertureField {
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  width: 960px;
+  height: 960px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 159, 10, 0.08);
+}
+
+.apertureField::before,
+.apertureField::after {
+  content: "";
+  position: absolute;
+  inset: 120px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 159, 10, 0.08);
+}
+
+.apertureField::after {
+  inset: 260px;
+  border-color: rgba(255, 159, 10, 0.14);
+  box-shadow: 0 0 90px rgba(255, 122, 26, 0.12);
+}
+
+.irisBlade {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 168px;
+  height: 520px;
+  margin-left: -84px;
+  margin-top: -260px;
+  border-radius: 80% 80% 26% 26%;
+  transform-origin: 50% 260px;
+  background: linear-gradient(180deg, rgba(255, 208, 138, 0.25), rgba(255, 159, 10, 0.08) 44%, transparent 84%);
+}
+
+.lightSweep {
+  position: absolute;
+  top: -12%;
+  width: 360px;
+  height: 130%;
+  background: linear-gradient(90deg, transparent, rgba(255, 208, 138, 0.08), transparent);
+  filter: blur(24px);
+}
+
+.textGradient {
+  background: linear-gradient(180deg, #ffd08a 0%, #ff9f0a 55%, #f25c05 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-style: italic;
+  font-weight: 300;
+}
+
+.kicker {
+  font-family: "JetBrains Mono", monospace;
+  color: var(--amber);
+  font-size: 25px;
+  letter-spacing: 0.22em;
+  font-weight: 700;
+}
+
+.menuBar {
+  position: absolute;
+  left: 42px;
+  right: 42px;
+  top: 34px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 22px;
+  color: rgba(246, 241, 233, 0.72);
+  font: 500 22px "Hanken Grotesk", sans-serif;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  background: rgba(20, 19, 23, 0.7);
+  backdrop-filter: blur(24px);
+}
+
+.menuLeft,
+.menuRight {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.appleDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bone);
+  opacity: 0.78;
+}
+
+.trayIcon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+}
+
+.heroGrid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 0.92fr 1.08fr;
+  gap: 42px;
+  padding: 156px 90px 92px;
+  align-items: center;
+}
+
+.heroCopy h1,
+.sceneCopy h2,
+.annotationCopy h2,
+.finalCard h2 {
+  margin: 0;
+  color: var(--bone);
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 0.96;
+}
+
+.heroCopy h1 {
+  margin-top: 34px;
+  max-width: 760px;
+  font-size: 112px;
+}
+
+.heroCopy p,
+.sceneCopy p,
+.annotationCopy p,
+.finalCard p {
+  margin: 32px 0 0;
+  max-width: 640px;
+  color: var(--mist);
+  font: 500 33px/1.28 "Hanken Grotesk", sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.commandChip,
+.finalCommand {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 42px;
+  padding: 22px 30px;
+  border-radius: 999px;
+  border: 1px solid var(--hair-2);
+  background: rgba(246, 241, 233, 0.035);
+  box-shadow: inset 0 1px 0 rgba(246, 241, 233, 0.05);
+  color: var(--mist);
+  font: 500 22px "JetBrains Mono", monospace;
+}
+
+.commandChip span,
+.finalCommand span {
+  color: var(--faint);
+}
+
+.heroShow {
+  position: relative;
+  transform-style: preserve-3d;
+}
+
+.markHalo {
+  position: absolute;
+  left: -34px;
+  top: -52px;
+  z-index: 2;
+  filter: drop-shadow(0 24px 60px rgba(255, 122, 26, 0.34));
+}
+
+.windowMock {
+  width: 1040px;
+  overflow: hidden;
+  border: 1px solid rgba(246, 241, 233, 0.12);
+  border-radius: 24px;
+  background: var(--surface);
+  transform-origin: center;
+}
+
+.windowChrome {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 20px;
+  gap: 11px;
+  border-bottom: 1px solid var(--hair);
+  background: rgba(20, 19, 23, 0.96);
+}
+
+.windowChrome span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.windowChrome b {
+  margin-left: 14px;
+  color: var(--faint);
+  font: 700 16px "JetBrains Mono", monospace;
+  letter-spacing: 0.04em;
+}
+
+.homeShot {
+  width: 100%;
+  height: auto;
+}
+
+.scene {
+  padding: 150px 96px 116px;
+}
+
+.splitScene,
+.quickScene,
+.outputScene {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 72px;
+  align-items: center;
+}
+
+.sceneCopy {
+  position: relative;
+  z-index: 4;
+}
+
+.sceneCopy h2,
+.annotationCopy h2 {
+  margin-top: 28px;
+  font-size: 86px;
+}
+
+.sceneCopy p,
+.annotationCopy p {
+  font-size: 31px;
+}
+
+.capturePanel {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+}
+
+.modeCard,
+.settingCard,
+.historyItem,
+.quickAccess,
+.finalCard {
+  border: 1px solid var(--hair);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(246, 241, 233, 0.05), rgba(246, 241, 233, 0.015)),
+    var(--surface);
+  box-shadow: 0 34px 90px -48px rgba(0, 0, 0, 0.94);
+}
+
+.modeCard {
+  min-height: 520px;
+  padding: 34px;
+}
+
+.modeNo {
+  color: var(--amber);
+  font: 700 24px "JetBrains Mono", monospace;
+  letter-spacing: 0.16em;
+}
+
+.captureDiagram {
+  position: relative;
+  height: 280px;
+  margin: 34px 0 26px;
+  border: 2px solid rgba(255, 159, 10, 0.44);
+  border-radius: 22px;
+  background: rgba(255, 159, 10, 0.045);
+}
+
+.captureDiagram1 {
+  border-style: dashed;
+}
+
+.captureDiagram2::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 42px;
+  border-bottom: 1px solid rgba(255, 159, 10, 0.32);
+  background: rgba(255, 159, 10, 0.06);
+}
+
+.captureDiagram3 {
+  box-shadow: inset 0 0 0 18px rgba(255, 159, 10, 0.05);
+}
+
+.captureDiagram i,
+.captureDiagram b {
+  position: absolute;
+  display: block;
+  background: var(--amber);
+}
+
+.captureDiagram i {
+  left: 50%;
+  top: 36%;
+  width: 2px;
+  height: 82px;
+}
+
+.captureDiagram b {
+  left: calc(50% - 40px);
+  top: calc(36% + 40px);
+  width: 82px;
+  height: 2px;
+}
+
+.modeCard strong,
+.settingCard b,
+.historyItem strong {
+  display: block;
+  color: var(--bone);
+  font: 600 34px "Fraunces", Georgia, serif;
+}
+
+.modeCard small,
+.settingCard span,
+.historyItem small {
+  display: block;
+  margin-top: 12px;
+  color: var(--mist);
+  font: 500 23px/1.25 "Hanken Grotesk", sans-serif;
+}
+
+.tiltedShot {
+  position: absolute;
+  left: 70px;
+  top: 204px;
+}
+
+.quickAccess {
+  position: absolute;
+  left: 1010px;
+  top: 585px;
+  z-index: 5;
+  width: 520px;
+  padding: 30px;
+  border-color: rgba(255, 159, 10, 0.28);
+  box-shadow: 0 0 0 1px rgba(255, 159, 10, 0.1), 0 46px 100px -42px rgba(255, 122, 26, 0.72);
+}
+
+.quickTitle {
+  color: var(--bone);
+  font: 600 36px "Fraunces", Georgia, serif;
+}
+
+.quickActions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+
+.quickActions span {
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: rgba(255, 159, 10, 0.1);
+  border: 1px solid rgba(255, 159, 10, 0.22);
+  color: var(--glow);
+  font: 700 18px "JetBrains Mono", monospace;
+  text-transform: uppercase;
+}
+
+.quickAccess p {
+  margin: 24px 0 0;
+  color: var(--mist);
+  font: 500 23px/1.3 "Hanken Grotesk", sans-serif;
+}
+
+.rightCopy {
+  grid-column: 2;
+}
+
+.quickScene .rightCopy {
+  position: absolute;
+  left: 1000px;
+  top: 152px;
+  width: 760px;
+  grid-column: auto;
+}
+
+.quickScene .rightCopy p {
+  max-width: 620px;
+}
+
+.annotationScene {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 70px;
+  align-items: center;
+}
+
+.annotationCanvas {
+  position: relative;
+  height: 720px;
+  border: 1px solid var(--hair);
+  border-radius: 30px;
+  background: var(--surface);
+  box-shadow: 0 48px 120px -52px rgba(0, 0, 0, 0.95);
+  overflow: hidden;
+}
+
+.toolRail {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  bottom: 24px;
+  width: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 22px;
+  border: 1px solid var(--hair);
+  background: rgba(11, 10, 12, 0.54);
+}
+
+.toolRail span {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgba(255, 159, 10, 0.08);
+  color: var(--glow);
+  font: 700 14px "JetBrains Mono", monospace;
+  text-transform: uppercase;
+}
+
+.markedScreenshot {
+  position: absolute;
+  left: 128px;
+  right: 34px;
+  top: 56px;
+  bottom: 56px;
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(255, 159, 10, 0.1), transparent 46%),
+    repeating-linear-gradient(0deg, rgba(246, 241, 233, 0.045) 0 1px, transparent 1px 36px),
+    repeating-linear-gradient(90deg, rgba(246, 241, 233, 0.035) 0 1px, transparent 1px 36px),
+    #111014;
+  border: 1px solid var(--hair-2);
+}
+
+.cropBox {
+  position: absolute;
+  left: 70px;
+  top: 54px;
+  width: 560px;
+  height: 344px;
+  border: 2px dashed rgba(255, 159, 10, 0.42);
+  border-radius: 16px;
+}
+
+.annotationMarks {
+  position: absolute;
+  inset: 0;
+}
+
+.annotationCopy {
+  position: relative;
+  z-index: 3;
+}
+
+.productScene {
+  padding-top: 120px;
+}
+
+.socialCanvas {
+  position: absolute;
+  left: 118px;
+  top: 128px;
+  width: 1000px;
+  height: 630px;
+  border-radius: 42px;
+  border: 1px solid rgba(255, 159, 10, 0.22);
+  background:
+    linear-gradient(135deg, rgba(255, 208, 138, 0.2), rgba(255, 159, 10, 0.08) 44%, rgba(242, 92, 5, 0.18)),
+    #151215;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 46px 130px -55px rgba(255, 122, 26, 0.48);
+}
+
+.socialPad {
+  transform: rotate(-4deg);
+}
+
+.pinNote {
+  position: absolute;
+  right: 78px;
+  top: 70px;
+  width: 250px;
+  padding: 24px;
+  border-radius: 24px;
+  background: rgba(11, 10, 12, 0.78);
+  border: 1px solid rgba(255, 159, 10, 0.28);
+}
+
+.pinNote b {
+  color: var(--amber);
+  font: 700 20px "JetBrains Mono", monospace;
+  letter-spacing: 0.12em;
+}
+
+.pinNote span {
+  display: block;
+  margin-top: 10px;
+  color: var(--mist);
+  font: 500 22px/1.2 "Hanken Grotesk", sans-serif;
+}
+
+.historyStack {
+  position: absolute;
+  right: 116px;
+  top: 138px;
+  width: 460px;
+  display: grid;
+  gap: 18px;
+}
+
+.historyItem {
+  display: flex;
+  gap: 18px;
+  padding: 22px;
+}
+
+.historyItem span {
+  width: 72px;
+  height: 54px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 208, 138, 0.28), rgba(255, 159, 10, 0.08));
+  border: 1px solid rgba(255, 159, 10, 0.2);
+}
+
+.bottomCopy {
+  position: absolute;
+  left: 126px;
+  bottom: 104px;
+  max-width: 1020px;
+}
+
+.settingsPanel {
+  width: 880px;
+  padding: 34px;
+  border: 1px solid var(--hair);
+  border-radius: 34px;
+  background: rgba(20, 19, 23, 0.92);
+  box-shadow: 0 46px 120px -50px rgba(0, 0, 0, 0.92);
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.settingsHeader strong {
+  color: var(--bone);
+  font: 600 36px "Fraunces", Georgia, serif;
+}
+
+.settingsHeader small {
+  display: block;
+  margin-top: 4px;
+  color: var(--mist);
+  font: 500 22px "Hanken Grotesk", sans-serif;
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  margin-top: 26px;
+}
+
+.settingCard {
+  min-height: 160px;
+  padding: 24px;
+}
+
+.settingCard b {
+  font-size: 30px;
+}
+
+.finalScene {
+  display: grid;
+  place-items: center;
+}
+
+.finalCard {
+  width: 1040px;
+  padding: 70px;
+  text-align: center;
+  border-color: rgba(255, 159, 10, 0.22);
+  box-shadow: 0 0 0 1px rgba(255, 159, 10, 0.1), 0 54px 140px -54px rgba(255, 122, 26, 0.62);
+}
+
+.finalCard svg {
+  filter: drop-shadow(0 22px 55px rgba(255, 122, 26, 0.36));
+}
+
+.finalCard h2 {
+  margin-top: 28px;
+  font-size: 112px;
+}
+
+.finalCard p {
+  max-width: none;
+  margin-top: 20px;
+}
+
+.finalCommand {
+  margin-top: 38px;
+}
+
+.finalCard small {
+  display: block;
+  margin-top: 28px;
+  color: var(--faint);
+  font: 700 19px "JetBrains Mono", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fadeOut {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: #050505;
+  pointer-events: none;
+}

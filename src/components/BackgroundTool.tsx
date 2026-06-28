@@ -379,7 +379,7 @@ export default function BackgroundTool({ imageSrc, onClose }: Props) {
               }}
             >
               <Upload size={12} />
-              {customBg ? "Custom image set" : "Add your own"}
+              {customBg ? "Custom image set" : "Upload your own image"}
               <input
                 type="file"
                 accept="image/*"

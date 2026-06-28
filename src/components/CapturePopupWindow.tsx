@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
-import { Copy, Download, Pencil, UploadCloud, X, Check } from "lucide-react";
+import { Copy, Download, Pencil, Image as ImageIcon, X, Check } from "lucide-react";
 
 interface CaptureInfo {
   captureId: number;
@@ -315,7 +315,7 @@ export default function CapturePopupWindow() {
           <CornerBtn style={{ top: 9, left: 9 }}     icon={Copy}        label="Copy"       onClick={handleCopy}       active={hovered} />
           <CornerBtn style={{ top: 9, right: 9 }}    icon={Download}    label="Save"       onClick={handleSave}       active={hovered} />
           <CornerBtn style={{ bottom: 9, left: 9 }}  icon={Pencil}      label="Annotate"   onClick={handleEdit}       active={hovered} />
-          <CornerBtn style={{ bottom: 9, right: 9 }} icon={UploadCloud} label="Background"  onClick={handleBackground} active={hovered} />
+          <CornerBtn style={{ bottom: 9, right: 9 }} icon={ImageIcon}   label="Background"  onClick={handleBackground} active={hovered} />
 
           {/* ── Dismiss circle, top-center ───────────────────────────────── */}
           <button

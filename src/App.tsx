@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { save } from "@tauri-apps/plugin-dialog";
+import { desktopDir } from "@tauri-apps/api/path";
 import { AppConfig, DEFAULT_CONFIG } from "./utils";
 import CaptureHome from "./components/CaptureHome";
 import AnnotationCanvas from "./components/AnnotationCanvas";
@@ -436,15 +436,15 @@ function App() {
         await invoke("save_image_with_config", { data: pngBase64 });
         showToast(`Saved to ${config.save_path}`);
       } else {
-        // No folder configured — show a save dialog (still honor the format)
+        // No folder configured — auto-save to the Desktop instead of prompting,
+        // so Done always finishes without a dialog.
         const { base64, ext } = await encodeForOutput(dataUrl);
-        const path = await save({
-          defaultPath: `Screenshot.${ext}`,
-          filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
-        });
-        if (!path) return false; // user cancelled the save dialog
-        await invoke("save_image", { data: base64, path });
-        showToast("Screenshot saved!");
+        const dir = await desktopDir();
+        const n = new Date();
+        const p2 = (x: number) => String(x).padStart(2, "0");
+        const stamp = `${n.getFullYear()}-${p2(n.getMonth() + 1)}-${p2(n.getDate())} at ${p2(n.getHours())}.${p2(n.getMinutes())}.${p2(n.getSeconds())}`;
+        await invoke("save_image", { data: base64, path: `${dir}/Screenshot ${stamp}.${ext}` });
+        showToast("Saved to Desktop");
       }
       // History always stores PNG (lossless re-editing), regardless of export format
       await invoke("add_to_history", { data: pngBase64 });
@@ -576,6 +576,7 @@ function App() {
           onBack={handleEditorBack}
           onDone={handleDone}
           onCopy={handleCopy}
+          onBackground={(dataUrl) => setBackgroundSrc(dataUrl)}
         />
       )}
       {screen === "settings" && (

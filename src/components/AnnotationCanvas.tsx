@@ -14,6 +14,7 @@ import {
   Eraser,
   RotateCcw,
   RotateCw,
+  Image as ImageIcon,
 } from "lucide-react";
 import { CaptureData } from "../App";
 
@@ -22,6 +23,7 @@ interface Props {
   onBack: () => void;
   onDone: (dataUrl: string) => Promise<void>; // save to folder & finish
   onCopy: (dataUrl: string) => Promise<void>;
+  onBackground: (dataUrl: string) => void; // send the annotated image to the Background tool
 }
 
 type Tool =
@@ -215,7 +217,7 @@ function drawShape(ctx: CanvasRenderingContext2D, s: DrawShape) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function AnnotationCanvas({ capture, onBack, onDone, onCopy }: Props) {
+export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBackground }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   // Base image source — an <img> initially, becomes the cropped <canvas> after a crop
@@ -897,8 +899,20 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy }: Pr
               <RotateCw size={15} />
             </button>
 
+            <div style={sepStyle} />
+
+            {/* Background — drop the annotated image onto a gradient/custom backdrop */}
+            <button
+              title="Add a background (gradient or your own image)"
+              onClick={() => onBackground(canvasRef.current!.toDataURL("image/png"))}
+              style={toolBtnStyle(false)}
+            >
+              <ImageIcon size={15} />
+            </button>
+
             {/* Copy */}
             <button
+              title="Copy to clipboard (⌘C)"
               onClick={handleCopy}
               className="press"
               style={{
@@ -919,7 +933,7 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy }: Pr
 
             {/* Done — saves to folder & finishes */}
             <button
-              title="Save to folder & finish (⌘S)"
+              title="Save & finish — auto-saves to your folder or Desktop (⌘S)"
               onClick={handleDone}
               className="press"
               style={{
