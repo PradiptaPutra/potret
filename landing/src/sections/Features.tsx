@@ -382,8 +382,9 @@ export default function Features() {
             </IconChip>
             <Title>History at hand</Title>
             <Desc>
-              Recent captures with copy, edit, pin, or delete — plus a menu-bar popup at{" "}
-              <kbd className="font-mono text-[12px] text-glow">⌘⇧H</kbd>.
+              Recent captures with copy, edit, pin, or delete — a menu-bar popup at{" "}
+              <kbd className="font-mono text-[12px] text-glow">⌘⇧H</kbd>, or just hover the
+              bottom-left corner of your screen.
             </Desc>
           </Cell>
 
