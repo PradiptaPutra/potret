@@ -122,6 +122,56 @@ button:not(:disabled):hover .capture-btn-label {
                      border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
 .press:active:not(:disabled) { transform: scale(0.96); }
 
+/* ── Corner-hover stack (bottom-left "recent captures" popup) ────────
+   No frame/header — bare thumbnails stacked bottom-up, fanned out with a slight
+   depth recession for older items. Item order = newest-first in the DOM; the
+   container is column-reverse so nth-child(1) (newest) renders closest to the
+   corner, and nth-child selectors below key off that same ordering. ──────── */
+.corner-stack-item {
+  width: 190px;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0,0,0,0.55);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+  position: relative;
+}
+.corner-stack-item:hover { box-shadow: 0 14px 34px rgba(0,0,0,0.65); }
+
+.corner-stack-item:nth-child(1) { transform: translateX(0px) scale(1);     opacity: 1;    }
+.corner-stack-item:nth-child(2) { transform: translateX(4px) scale(0.97);  opacity: 0.85; }
+.corner-stack-item:nth-child(3) { transform: translateX(8px) scale(0.94);  opacity: 0.7;  }
+.corner-stack-item:nth-child(4) { transform: translateX(12px) scale(0.91); opacity: 0.55; }
+.corner-stack-item:nth-child(5) { transform: translateX(16px) scale(0.88); opacity: 0.4;  }
+
+/* whole-stack hover: brighten/scale the deck back toward full prominence */
+.corner-stack:hover .corner-stack-item:nth-child(1) { transform: translateX(0px) scale(1);      opacity: 1;    }
+.corner-stack:hover .corner-stack-item:nth-child(2) { transform: translateX(4px) scale(0.99);   opacity: 0.95; }
+.corner-stack:hover .corner-stack-item:nth-child(3) { transform: translateX(8px) scale(0.985);  opacity: 0.9;  }
+.corner-stack:hover .corner-stack-item:nth-child(4) { transform: translateX(12px) scale(0.98);  opacity: 0.85; }
+.corner-stack:hover .corner-stack-item:nth-child(5) { transform: translateX(16px) scale(0.975); opacity: 0.8;  }
+
+/* specific-item hover keeps its fan offset while lifting above the rest */
+.corner-stack-item:nth-child(1):hover { transform: translateX(0px) translateY(-2px) scale(1.02); opacity: 1; }
+.corner-stack-item:nth-child(2):hover { transform: translateX(4px) translateY(-2px) scale(1.02); opacity: 1; }
+.corner-stack-item:nth-child(3):hover { transform: translateX(8px) translateY(-2px) scale(1.02); opacity: 1; }
+.corner-stack-item:nth-child(4):hover { transform: translateX(12px) translateY(-2px) scale(1.02); opacity: 1; }
+.corner-stack-item:nth-child(5):hover { transform: translateX(16px) translateY(-2px) scale(1.02); opacity: 1; }
+
+.corner-stack-actions {
+  position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
+  opacity: 0; transition: opacity var(--dur-fast) var(--ease-out);
+}
+.corner-stack-item:hover .corner-stack-actions { opacity: 1; }
+.corner-stack-actions button {
+  width: 22px; height: 22px; border-radius: 6px;
+  background: rgba(0,0,0,0.72); border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.8); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: background var(--dur-fast), border-color var(--dur-fast), color var(--dur-fast);
+}
+.corner-stack-actions button:hover { background: var(--accent); border-color: var(--accent-border); color: #000; }
+.corner-stack-actions button.danger:hover { background: var(--red); border-color: var(--red); color: #fff; }
+
 /* Respect the system "reduce motion" setting — neutralizes every animation/transition */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

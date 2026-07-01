@@ -7,6 +7,7 @@ export interface AppConfig {
   format: "png" | "jpg";
   jpeg_quality: number;
   filename_template: string;
+  corner_popup_enabled: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -18,6 +19,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   format: "png",
   jpeg_quality: 90,
   filename_template: "Screenshot {date} at {time}",
+  corner_popup_enabled: true,
 };
 
 export function formatShortcut(s: string): string {

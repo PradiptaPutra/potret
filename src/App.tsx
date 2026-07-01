@@ -12,6 +12,7 @@ import BackgroundTool from "./components/BackgroundTool";
 import CapturePopupWindow from "./components/CapturePopupWindow";
 import CaptureSelector from "./components/CaptureSelector";
 import HistoryPopupWindow from "./components/HistoryPopupWindow";
+import CornerHistoryWindow from "./components/CornerHistoryWindow";
 import { useHistory } from "./hooks/useHistory";
 import "./index.css";
 
@@ -151,6 +152,7 @@ function App() {
   if (WINDOW_LABEL === "capture-popup") return <CapturePopupWindow />;
   if (WINDOW_LABEL === "capture-selector") return <CaptureSelector />;
   if (WINDOW_LABEL === "history") return <HistoryPopupWindow />;
+  if (WINDOW_LABEL === "corner-history") return <CornerHistoryWindow />;
   if (WINDOW_LABEL.startsWith("pinned-")) return <PinnedView windowLabel={WINDOW_LABEL} />;
 
   const [screen, setScreen] = useState<AppScreen>("home");
@@ -289,7 +291,7 @@ function App() {
       }
     ).then((fn) => {
       unlisten = fn;
-    });
+    }).catch((err) => console.error("failed to listen for shortcut-triggered:", err));
 
     return () => {
       unlisten?.();
@@ -307,7 +309,7 @@ function App() {
         setBackgroundSrc(full);
         invoke("close_capture_popup", { captureId });
       }
-    }).then((fn) => { unlisten = fn; });
+    }).then((fn) => { unlisten = fn; }).catch((err) => console.error("failed to listen for capture-background-requested:", err));
     return () => { unlisten?.(); };
   }, []);
 
@@ -332,7 +334,7 @@ function App() {
       }
     }).then((fn) => {
       unlisten = fn;
-    });
+    }).catch((err) => console.error("failed to listen for capture-edit-requested:", err));
 
     return () => {
       unlisten?.();
@@ -351,11 +353,11 @@ function App() {
       editFromPopupRef.current = true;
       setCapture({ data: full, width, height });
       setScreen("annotate");
-    }).then((fn) => { unEdit = fn; });
+    }).then((fn) => { unEdit = fn; }).catch((err) => console.error("failed to listen for history-edit-requested:", err));
     listen<{ id: string }>("history-background-requested", async (e) => {
       const full = await invoke<string | null>("get_history_full", { id: e.payload.id }).catch(() => null);
       if (full) setBackgroundSrc(full);
-    }).then((fn) => { unBg = fn; });
+    }).then((fn) => { unBg = fn; }).catch((err) => console.error("failed to listen for history-background-requested:", err));
     return () => { unEdit?.(); unBg?.(); };
   }, []);
 
@@ -368,7 +370,7 @@ function App() {
         activeCaptureModeRef.current = null;
         setLoading(null);
       }
-    }).then((fn) => { unlisten = fn; });
+    }).then((fn) => { unlisten = fn; }).catch((err) => console.error("failed to listen for capture-completed:", err));
     return () => { unlisten?.(); };
   }, []);
 
@@ -378,7 +380,7 @@ function App() {
     listen("history-updated", () => {
       if (historyReloadTimerRef.current) clearTimeout(historyReloadTimerRef.current);
       historyReloadTimerRef.current = setTimeout(() => void loadHistory(), 80);
-    }).then((fn) => { unlisten = fn; });
+    }).then((fn) => { unlisten = fn; }).catch((err) => console.error("failed to listen for history-updated:", err));
     return () => {
       unlisten?.();
       if (historyReloadTimerRef.current) clearTimeout(historyReloadTimerRef.current);
@@ -391,7 +393,7 @@ function App() {
     let unlisten: (() => void) | undefined;
     listen<string>("save-error", (e) => {
       showToast(e.payload || "Failed to save screenshot", "error");
-    }).then((fn) => { unlisten = fn; });
+    }).then((fn) => { unlisten = fn; }).catch((err) => console.error("failed to listen for save-error:", err));
     return () => { unlisten?.(); };
   }, [showToast]);
 

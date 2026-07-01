@@ -25,7 +25,7 @@ export default function HistoryPopupWindow() {
       reloadTimer.current = setTimeout(() => void loadHistory(), 80);
     }).then((fn) => {
       unlisten = fn;
-    });
+    }).catch((err) => console.error("failed to listen for history-updated:", err));
     const onFocus = () => void loadHistory();
     window.addEventListener("focus", onFocus);
     return () => {
@@ -46,6 +46,7 @@ export default function HistoryPopupWindow() {
   async function onCopy(item: HistoryItem) {
     const full = await loadFull(item.id);
     if (full) await invoke("copy_to_clipboard", { data: full });
+    void getCurrentWindow().hide();
   }
 
   async function onPin(item: HistoryItem) {
@@ -91,6 +92,7 @@ export default function HistoryPopupWindow() {
         onBackground={onBackground}
         onDelete={(id) => void deleteItem(id)}
         onClear={() => void clearAll()}
+        onDragComplete={() => void getCurrentWindow().hide()}
       />
     </div>
   );

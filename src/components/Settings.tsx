@@ -204,6 +204,21 @@ export default function Settings({ onBack }: Props) {
               </div>
               <Toggle on={autoStart} onChange={toggleAutoStart} />
             </div>
+            <div style={{
+              display: "flex", alignItems: "center", padding: "10px 14px", gap: 12,
+              borderTop: "1px solid rgba(255,255,255,0.08)",
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13 }}>Hover for recent captures</div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>
+                  Hover the bottom-left corner of the screen to show the last 5 captures
+                </div>
+              </div>
+              <Toggle
+                on={config.corner_popup_enabled}
+                onChange={(v) => void updateConfig({ ...config, corner_popup_enabled: v })}
+              />
+            </div>
           </div>
         </div>
 

@@ -85,7 +85,7 @@ export default function CaptureSelector() {
       // the overlay shows — before any pointermove (which may never come on the shortcut path).
       setCursorPos({ x: event.payload.cursorX, y: event.payload.cursorY });
       void resetState();
-    }).then((fn) => { unlisten = fn; });
+    }).then((fn) => { unlisten = fn; }).catch((err) => console.error("failed to listen for selector-activate:", err));
 
     return () => {
       document.removeEventListener("keydown", onKeyDown);

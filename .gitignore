@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
 
 # Rust / Tauri build artifacts (target is ~11GB — never commit)
 /src-tauri/target
@@ -32,3 +34,5 @@ src-tauri/gen
 # Local DMG staging (published to Releases, not committed)
 dist-dmg/
 *.dmg
+.cold-shower/
+.plan-gate/

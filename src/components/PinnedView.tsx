@@ -17,7 +17,8 @@ export default function PinnedView({ windowLabel }: Props) {
     invoke<string | null>("get_pinned_data", { windowLabel })
       .then(data => {
         if (data) setImgSrc(`data:image/png;base64,${data}`);
-      });
+      })
+      .catch((err) => console.error("failed to load pinned image:", err));
 
     return () => {
       document.body.style.background = "";

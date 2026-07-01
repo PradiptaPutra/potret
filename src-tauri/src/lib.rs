@@ -38,6 +38,14 @@ pub struct CapturePopupInfo {
     data: Mutex<CapturePopupState>,
 }
 
+// In-memory mirror of `AppConfig.corner_popup_enabled`, refreshed on every `save_config`,
+// so the corner-hover poller (runs every 150ms) never has to touch disk. `hover_since` tracks
+// how long the cursor has continuously sat in the corner zone, for the dwell-before-show delay.
+pub struct CornerPopupSettings {
+    enabled: Mutex<bool>,
+    hover_since: Mutex<Option<std::time::Instant>>,
+}
+
 // ---------------------------------------------------------------------------
 // Screenshot / capture types
 // ---------------------------------------------------------------------------
@@ -188,6 +196,79 @@ fn active_monitor_logical(app: &AppHandle) -> (f64, f64, f64, f64) {
             )
         })
         .unwrap_or((0.0, 0.0, 1440.0, 900.0))
+}
+
+// Logical px of slack around the true screen corner. The cursor physically clamps at the
+// screen edge, so a small zone here is enough — it never fires from merely being "near" a corner.
+const CORNER_ZONE: f64 = 14.0;
+
+/// If the cursor is currently hovering the bottom-left corner of its monitor, returns that
+/// monitor's logical (x, y, height) so the caller can anchor a popup there.
+fn cursor_in_bottom_left_corner(app: &AppHandle) -> Option<(f64, f64, f64)> {
+    let cursor = app.cursor_position().ok()?;
+    let monitor = app
+        .monitor_from_point(cursor.x, cursor.y)
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten())?;
+    let sf = monitor.scale_factor();
+    let pos = monitor.position();
+    let size = monitor.size();
+    let mon_x = pos.x as f64 / sf;
+    let mon_y = pos.y as f64 / sf;
+    let mon_h = size.height as f64 / sf;
+    let cur_x = cursor.x / sf;
+    let cur_y = cursor.y / sf;
+    let in_corner = cur_x <= mon_x + CORNER_ZONE && cur_y >= mon_y + mon_h - CORNER_ZONE;
+    in_corner.then_some((mon_x, mon_y, mon_h))
+}
+
+const CORNER_POPUP_W: f64 = 260.0;
+const CORNER_POPUP_H: f64 = 480.0;
+// Corner must be continuously hovered this long before the popup shows — the corner is also
+// near the Dock/Trash/window-minimize spots, so an instant trigger fires on merely passing
+// through. Tuned against the browser mockup before porting here.
+const CORNER_DWELL_MS: u128 = 120;
+
+// Runs on a 150ms timer from `setup()`. Only ever shows the popup — hiding it is owned by the
+// frontend (mouseleave debounce, or an interaction like copy/drag/edit), so a lingering cursor
+// at the corner doesn't fight the user for control of the window.
+fn poll_corner_hover(app: &AppHandle) {
+    let Some(state) = app.try_state::<CornerPopupSettings>() else {
+        return;
+    };
+    let enabled = state.enabled.lock().map(|g| *g).unwrap_or(true);
+    if !enabled {
+        if let Ok(mut since) = state.hover_since.lock() {
+            *since = None;
+        }
+        return;
+    }
+    let in_corner = cursor_in_bottom_left_corner(app);
+    let Ok(mut since) = state.hover_since.lock() else {
+        return;
+    };
+    let Some((mon_x, mon_y, mon_h)) = in_corner else {
+        *since = None;
+        return;
+    };
+    let now = std::time::Instant::now();
+    let started = *since.get_or_insert(now);
+    if now.duration_since(started).as_millis() < CORNER_DWELL_MS {
+        return; // still dwelling — cursor hasn't lingered long enough yet
+    }
+    let Some(win) = app.get_webview_window("corner-history") else {
+        return;
+    };
+    if win.is_visible().unwrap_or(false) {
+        return;
+    }
+    let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+        x: mon_x,
+        y: mon_y + mon_h - CORNER_POPUP_H,
+    }));
+    let _ = win.show();
+    let _ = win.emit("corner-popup-shown", ());
 }
 
 fn store_and_open_popup(
@@ -428,6 +509,27 @@ fn precreate_overlay_windows(app: &AppHandle) {
             .inner_size(hist_w, hist_h)
             .position(screen_w - hist_w - 20.0, 40.0)
             .build();
+    }
+
+    // Bottom-left hover popup — last 5 captures, shown by poll_corner_hover()
+    if app.get_webview_window("corner-history").is_none() {
+        let _ = WebviewWindowBuilder::new(
+            app,
+            "corner-history",
+            WebviewUrl::App("index.html".into()),
+        )
+        .title("Recent Captures")
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .inner_size(CORNER_POPUP_W, CORNER_POPUP_H)
+        .position(0.0, screen_h - CORNER_POPUP_H)
+        .build();
     }
 }
 
@@ -815,6 +917,9 @@ fn default_filename_template() -> String {
 fn default_shortcut_history() -> String {
     "CommandOrControl+Shift+H".into()
 }
+fn default_corner_popup_enabled() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -831,6 +936,8 @@ pub struct AppConfig {
     pub filename_template: String,
     #[serde(default = "default_shortcut_history")]
     pub shortcut_history: String,
+    #[serde(default = "default_corner_popup_enabled")]
+    pub corner_popup_enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -846,6 +953,7 @@ impl Default for AppConfig {
             jpeg_quality: default_jpeg_quality(),
             filename_template: default_filename_template(),
             shortcut_history: default_shortcut_history(),
+            corner_popup_enabled: default_corner_popup_enabled(),
         }
     }
 }
@@ -939,6 +1047,11 @@ async fn save_config(app: AppHandle, config: AppConfig) -> Result<(), String> {
     std::fs::write(&path, s).map_err(|e| e.to_string())?;
     // Re-register global shortcuts immediately with the new config
     register_shortcuts_from_config(&app, &config);
+    if let Some(state) = app.try_state::<CornerPopupSettings>() {
+        if let Ok(mut enabled) = state.enabled.lock() {
+            *enabled = config.corner_popup_enabled;
+        }
+    }
     Ok(())
 }
 
@@ -1734,6 +1847,20 @@ pub fn run() {
             // Load config and register global shortcuts from it
             let config = load_config_sync(app.handle());
             register_shortcuts_from_config(app.handle(), &config);
+            if let Some(state) = app.handle().try_state::<CornerPopupSettings>() {
+                if let Ok(mut enabled) = state.enabled.lock() {
+                    *enabled = config.corner_popup_enabled;
+                }
+            }
+
+            // Bottom-left corner hover watcher — cheap poll, independent of window focus.
+            let poll_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    poll_corner_hover(&poll_handle);
+                }
+            });
 
             // Intercept window close → hide instead of destroy.
             // This keeps the frontend alive so global shortcut events are
@@ -1763,6 +1890,10 @@ pub fn run() {
         })
         .manage(CapturePopupInfo {
             data: Mutex::new(CapturePopupState::default()),
+        })
+        .manage(CornerPopupSettings {
+            enabled: Mutex::new(true),
+            hover_since: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             capture_fullscreen,

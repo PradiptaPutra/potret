@@ -13,6 +13,8 @@ interface Props {
   onPin: (item: HistoryItem) => void;
   onBackground: (item: HistoryItem) => void;
   loading: boolean;
+  onDragComplete?: () => void;
+  hideClearAll?: boolean;
 }
 
 function formatSize(bytes: number): string {
@@ -41,7 +43,7 @@ function SkeletonCard() {
   );
 }
 
-export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClear, onPin, onBackground, loading }: Props) {
+export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClear, onPin, onBackground, loading, onDragComplete, hideClearAll }: Props) {
 
   /* ── Header ── */
   const header = (
@@ -80,7 +82,7 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
           </span>
         )}
       </div>
-      {items.length > 0 && (
+      {items.length > 0 && !hideClearAll && (
         <button
           onClick={onClear}
           style={{
@@ -149,6 +151,7 @@ export default function HistoryPanel({ items, onSelect, onDelete, onCopy, onClea
               onCopy={onCopy}
               onPin={onPin}
               onBackground={onBackground}
+              onDragComplete={onDragComplete}
             />
           ))}
         </div>
@@ -165,6 +168,7 @@ function HistoryCard({
   onCopy,
   onPin,
   onBackground,
+  onDragComplete,
 }: {
   item: HistoryItem;
   onSelect: (i: HistoryItem) => void;
@@ -172,6 +176,7 @@ function HistoryCard({
   onCopy: (i: HistoryItem) => void;
   onPin: (i: HistoryItem) => void;
   onBackground: (i: HistoryItem) => void;
+  onDragComplete?: () => void;
 }) {
   const size = formatSize(item.fileSize);
 
@@ -181,6 +186,7 @@ function HistoryCard({
     try {
       const path = await invoke<string>("stage_history_for_drag", { id: item.id });
       await startDrag({ item: [path], icon: path });
+      onDragComplete?.();
     } catch (err) {
       console.error(err);
     }
