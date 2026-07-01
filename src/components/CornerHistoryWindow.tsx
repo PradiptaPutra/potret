@@ -15,7 +15,7 @@ const RECENT_COUNT = 5;
 // just the thumbnails, same copy/drag/edit actions as the menubar (Cmd+Shift+H) popup.
 // Closing is owned entirely by this component: mouse-leave debounce, Esc, or any interaction.
 export default function CornerHistoryWindow() {
-  const { items, loadHistory, deleteItem } = useHistory();
+  const { items, loadHistory, deleteItem } = useHistory(RECENT_COUNT);
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 

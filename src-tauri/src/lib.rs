@@ -44,6 +44,9 @@ pub struct CapturePopupInfo {
 pub struct CornerPopupSettings {
     enabled: Mutex<bool>,
     hover_since: Mutex<Option<std::time::Instant>>,
+    // Consecutive poller ticks with the cursor away from both the corner zone and the
+    // visible popup — the Rust-side auto-hide watchdog (see poll_corner_hover).
+    away_ticks: Mutex<u8>,
 }
 
 // ---------------------------------------------------------------------------
@@ -230,21 +233,69 @@ const CORNER_POPUP_H: f64 = 480.0;
 // through. Tuned against the browser mockup before porting here.
 const CORNER_DWELL_MS: u128 = 120;
 
-// Runs on a 150ms timer from `setup()`. Only ever shows the popup — hiding it is owned by the
-// frontend (mouseleave debounce, or an interaction like copy/drag/edit), so a lingering cursor
-// at the corner doesn't fight the user for control of the window.
+// The frontend's mouseleave-debounce close only fires if the cursor entered the popup at
+// least once. This watchdog covers the other path: popup shown, cursor pulled away without
+// ever entering it. ~4 ticks at 80ms ≈ 320ms of "cursor is elsewhere" before we hide.
+const AWAY_TICKS_TO_HIDE: u8 = 4;
+
+/// True when the cursor is inside the window's frame (both in physical pixels).
+fn cursor_over_window(app: &AppHandle, win: &tauri::WebviewWindow) -> bool {
+    let Ok(cur) = app.cursor_position() else {
+        return false;
+    };
+    let Ok(pos) = win.outer_position() else {
+        return false;
+    };
+    let Ok(size) = win.outer_size() else {
+        return false;
+    };
+    cur.x >= pos.x as f64
+        && cur.x <= (pos.x + size.width as i32) as f64
+        && cur.y >= pos.y as f64
+        && cur.y <= (pos.y + size.height as i32) as f64
+}
+
+// Runs on an 80ms timer from `setup()`. Shows the popup after the corner dwell, and — as a
+// fallback for the frontend's mouseleave close — hides it when the cursor has clearly left
+// (never-entered case). Interactive closes (copy/drag/edit/Esc) stay frontend-owned.
 fn poll_corner_hover(app: &AppHandle) {
     let Some(state) = app.try_state::<CornerPopupSettings>() else {
         return;
     };
     let enabled = state.enabled.lock().map(|g| *g).unwrap_or(true);
-    if !enabled {
+    let in_corner = if enabled {
+        cursor_in_bottom_left_corner(app)
+    } else {
+        None
+    };
+    let Some(win) = app.get_webview_window("corner-history") else {
+        return;
+    };
+
+    if win.is_visible().unwrap_or(false) {
+        // While visible: dwell state stays cleared so a later re-show needs a fresh dwell,
+        // and the away-watchdog decides whether the popup has been abandoned.
         if let Ok(mut since) = state.hover_since.lock() {
             *since = None;
         }
+        let abandoned = !enabled || (in_corner.is_none() && !cursor_over_window(app, &win));
+        if let Ok(mut away) = state.away_ticks.lock() {
+            if abandoned {
+                *away += 1;
+                if *away >= AWAY_TICKS_TO_HIDE {
+                    *away = 0;
+                    let _ = win.hide();
+                }
+            } else {
+                *away = 0;
+            }
+        }
         return;
     }
-    let in_corner = cursor_in_bottom_left_corner(app);
+
+    if let Ok(mut away) = state.away_ticks.lock() {
+        *away = 0;
+    }
     let Ok(mut since) = state.hover_since.lock() else {
         return;
     };
@@ -257,12 +308,7 @@ fn poll_corner_hover(app: &AppHandle) {
     if now.duration_since(started).as_millis() < CORNER_DWELL_MS {
         return; // still dwelling — cursor hasn't lingered long enough yet
     }
-    let Some(win) = app.get_webview_window("corner-history") else {
-        return;
-    };
-    if win.is_visible().unwrap_or(false) {
-        return;
-    }
+    *since = None; // consumed — the next show requires a fresh dwell
     let _ = win.set_position(tauri::Position::Logical(tauri::LogicalPosition {
         x: mon_x,
         y: mon_y + mon_h - CORNER_POPUP_H,
@@ -776,7 +822,7 @@ fn capture_selected_region(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-async fn get_history(app: AppHandle) -> Result<Vec<HistoryItem>, String> {
+async fn get_history(app: AppHandle, limit: Option<usize>) -> Result<Vec<HistoryItem>, String> {
     let dir = history_dir(&app)?;
 
     // 1) Collect metadata only (cheap — small JSON reads, no image decode)
@@ -796,9 +842,11 @@ async fn get_history(app: AppHandle) -> Result<Vec<HistoryItem>, String> {
         }
     }
 
-    // 2) Newest first, cap at 50 BEFORE doing any thumbnail work
+    // 2) Newest first, cap BEFORE doing any thumbnail work. Callers that only render a
+    // few items (the corner hover popup shows 5) pass a limit so showing the popup
+    // doesn't pay for 50 thumbnail reads.
     metas.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-    metas.truncate(50);
+    metas.truncate(limit.unwrap_or(50).min(50));
 
     // 3) Build items using the cached on-disk thumbnail; generate + cache on miss
     let mut items: Vec<HistoryItem> = Vec::with_capacity(metas.len());
@@ -1854,10 +1902,11 @@ pub fn run() {
             }
 
             // Bottom-left corner hover watcher — cheap poll, independent of window focus.
+            // 80ms keeps show latency (dwell + ≤1 tick) comfortably under ~200ms.
             let poll_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    tokio::time::sleep(Duration::from_millis(80)).await;
                     poll_corner_hover(&poll_handle);
                 }
             });
@@ -1894,6 +1943,7 @@ pub fn run() {
         .manage(CornerPopupSettings {
             enabled: Mutex::new(true),
             hover_since: Mutex::new(None),
+            away_ticks: Mutex::new(0),
         })
         .invoke_handler(tauri::generate_handler![
             capture_fullscreen,

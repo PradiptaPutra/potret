@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { HistoryItem } from "../App";
 
-export function useHistory() {
+export function useHistory(limit?: number) {
   const [items, setItems] = useState<HistoryItem[]>([]);
 
   const loadHistory = useCallback(async () => {
     try {
       // Rust serializes snake_case fields and stores unix SECONDS — normalize here
-      const raw = await invoke<Array<Record<string, unknown>>>("get_history");
+      const raw = await invoke<Array<Record<string, unknown>>>("get_history", { limit: limit ?? null });
       const history: HistoryItem[] = (raw ?? []).map((h) => ({
         id: h.id as string,
         path: h.path as string,
@@ -23,7 +23,7 @@ export function useHistory() {
       // Backend command may not exist yet — gracefully return empty
       setItems([]);
     }
-  }, []);
+  }, [limit]);
 
   const deleteItem = useCallback(async (id: string) => {
     try {

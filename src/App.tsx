@@ -158,6 +158,10 @@ function App() {
   const [screen, setScreen] = useState<AppScreen>("home");
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [capture, setCapture] = useState<CaptureData | null>(null);
+  // Bumped on every new capture and used as AnnotationCanvas's `key`, forcing a clean
+  // remount per screenshot — without it React reuses the instance and annotations from
+  // the previous session bleed onto the new image (issue #5).
+  const [captureKey, setCaptureKey] = useState(0);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -328,6 +332,7 @@ function App() {
       const full = await invoke<string | null>("get_capture_full_data", { captureId });
       if (info?.captureId === captureId && full) {
         editFromPopupRef.current = true; // opened transiently from the popup
+        setCaptureKey((k) => k + 1);
         setCapture({ data: full, width: info.width, height: info.height });
         setScreen("annotate");
         invoke("close_capture_popup", { captureId }); // clear Rust state now that main window has the data
@@ -351,6 +356,7 @@ function App() {
       const full = await invoke<string | null>("get_history_full", { id }).catch(() => null);
       if (!full) return;
       editFromPopupRef.current = true;
+      setCaptureKey((k) => k + 1);
       setCapture({ data: full, width, height });
       setScreen("annotate");
     }).then((fn) => { unEdit = fn; }).catch((err) => console.error("failed to listen for history-edit-requested:", err));
@@ -543,6 +549,7 @@ function App() {
     const full = await loadHistoryFull(item);
     if (!full) return;
     editFromPopupRef.current = false; // editing inside the app — return home on Done
+    setCaptureKey((k) => k + 1);
     setCapture({ data: full, width: item.width, height: item.height });
     setScreen("annotate");
   }
@@ -574,6 +581,7 @@ function App() {
       )}
       {screen === "annotate" && capture && (
         <AnnotationCanvas
+          key={captureKey}
           capture={capture}
           onBack={handleEditorBack}
           onDone={handleDone}
