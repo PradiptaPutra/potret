@@ -443,18 +443,43 @@ fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
         return;
     }
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_visible_on_all_workspaces(true);
         let _ = w.show();
     }
 }
 
-// Bring the "main" window to the CURRENT macOS Space and focus it, instead of letting AppKit
-// animate the user back to whatever Space the window last lived on. Asserting
-// visible-on-all-workspaces right before focus surfaces it on the active Space (the same trick
-// every overlay/popup window here already uses) — fixes "capturing/annotating yanks me to
-// another desktop" (issue #6). Idempotent: the collection-behavior flag just gets re-set.
+// macOS: make the main window MOVE to the user's current Space whenever the app is activated,
+// instead of dragging the user back to whatever Space the window was last on. This is the
+// documented NSWindow collection-behavior fix for "capturing/annotating jumps me to another
+// desktop" (issue #6). set_visible_on_all_workspaces (CanJoinAllSpaces) did NOT solve it — that
+// makes the window appear on every Space rather than following you — so we OR MoveToActiveSpace
+// straight onto the NSWindow. The behavior is persistent, but we re-assert it on every show in
+// case Tauri resets it. Called once at setup too.
+#[cfg(target_os = "macos")]
+fn pin_main_to_active_space(win: &tauri::WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    // NSWindowCollectionBehaviorMoveToActiveSpace = 1 << 1
+    const MOVE_TO_ACTIVE_SPACE: usize = 1 << 1;
+    let Ok(ptr) = win.ns_window() else {
+        return;
+    };
+    if ptr.is_null() {
+        return;
+    }
+    // SAFETY: ptr is a valid NSWindow* for the lifetime of the window; we only read then set
+    // its collectionBehavior (an NSUInteger bitmask) via standard AppKit selectors.
+    unsafe {
+        let nswindow = &*(ptr as *const AnyObject);
+        let current: usize = msg_send![nswindow, collectionBehavior];
+        let _: () = msg_send![nswindow, setCollectionBehavior: current | MOVE_TO_ACTIVE_SPACE];
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn pin_main_to_active_space(_win: &tauri::WebviewWindow) {}
+
+// Show + focus the main window on the user's CURRENT Space (see pin_main_to_active_space).
 fn show_main_on_active_space(win: &tauri::WebviewWindow) {
-    let _ = win.set_visible_on_all_workspaces(true);
+    pin_main_to_active_space(win);
     let _ = win.show();
     let _ = win.set_focus();
 }
@@ -1924,6 +1949,9 @@ pub fn run() {
             // This keeps the frontend alive so global shortcut events are
             // still received and the tray icon can re-show the window.
             if let Some(win) = app.get_webview_window("main") {
+                // Move to the active Space on activation instead of yanking the user back
+                // to the Space this window was last on (issue #6).
+                pin_main_to_active_space(&win);
                 let win_clone = win.clone();
                 win.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
