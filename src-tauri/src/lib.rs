@@ -443,8 +443,20 @@ fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
         return;
     }
     if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_visible_on_all_workspaces(true);
         let _ = w.show();
     }
+}
+
+// Bring the "main" window to the CURRENT macOS Space and focus it, instead of letting AppKit
+// animate the user back to whatever Space the window last lived on. Asserting
+// visible-on-all-workspaces right before focus surfaces it on the active Space (the same trick
+// every overlay/popup window here already uses) — fixes "capturing/annotating yanks me to
+// another desktop" (issue #6). Idempotent: the collection-behavior flag just gets re-set.
+fn show_main_on_active_space(win: &tauri::WebviewWindow) {
+    let _ = win.set_visible_on_all_workspaces(true);
+    let _ = win.show();
+    let _ = win.set_focus();
 }
 
 fn finalize_capture_and_popup(
@@ -1700,8 +1712,7 @@ async fn quick_save_capture(
 #[tauri::command]
 async fn open_main_for_edit(app: AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
-        win.show().map_err(|e| e.to_string())?;
-        win.set_focus().map_err(|e| e.to_string())?;
+        show_main_on_active_space(&win);
     }
     Ok(())
 }
@@ -1836,8 +1847,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
                 "show" => {
                     if let Some(win) = app.get_webview_window("main") {
-                        let _ = win.show();
-                        let _ = win.set_focus();
+                        show_main_on_active_space(&win);
                     }
                 }
                 "quit" => {
@@ -1858,8 +1868,7 @@ fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     if win.is_visible().unwrap_or(false) {
                         let _ = win.hide();
                     } else {
-                        let _ = win.show();
-                        let _ = win.set_focus();
+                        show_main_on_active_space(&win);
                     }
                 }
             }
