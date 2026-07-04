@@ -450,19 +450,25 @@ fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
     }
 }
 
-// macOS: make the main window MOVE to the user's current Space whenever the app is activated,
-// instead of dragging the user back to whatever Space the window was last on. This is the
-// documented NSWindow collection-behavior fix for "capturing/annotating jumps me to another
-// desktop" (issue #6). set_visible_on_all_workspaces (CanJoinAllSpaces) did NOT solve it — that
-// makes the window appear on every Space rather than following you — so we OR MoveToActiveSpace
-// straight onto the NSWindow. The behavior is persistent, but we re-assert it on every show in
-// case Tauri resets it. Called once at setup too.
+// macOS: make the main window present on EVERY Space (CanJoinAllSpaces), the same behavior
+// every overlay/popup window here already uses. This is the fix for "capturing/annotating
+// yanks me to another desktop" (issue #6):
+//
+//   The bounce is macOS following the frontmost app to the Space its window lives on. When the
+//   main window exists only on Desktop 2 and you switch to Desktop 1, macOS drags you back to
+//   Desktop 2 because that's where Potret's window is. Two earlier attempts missed:
+//     - set_visible_on_all_workspaces (Tauri): sets the right bit but doesn't reliably apply to
+//       the config-created main window.
+//     - MoveToActiveSpace: only relocates the window on EXPLICIT app activation (cmd-tab / icon
+//       click), not on a passive Space switch — so it never fired for this case.
+//   CanJoinAllSpaces, set DIRECTLY on the NSWindow, means the window is already on whatever
+//   Space you're on, so macOS never needs to switch. Persistent, but re-asserted on every show.
 #[cfg(target_os = "macos")]
 fn pin_main_to_active_space(win: &tauri::WebviewWindow) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
-    // NSWindowCollectionBehaviorMoveToActiveSpace = 1 << 1
-    const MOVE_TO_ACTIVE_SPACE: usize = 1 << 1;
+    // NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
+    const CAN_JOIN_ALL_SPACES: usize = 1 << 0;
     let Ok(ptr) = win.ns_window() else {
         return;
     };
@@ -474,7 +480,7 @@ fn pin_main_to_active_space(win: &tauri::WebviewWindow) {
     unsafe {
         let nswindow = &*(ptr as *const AnyObject);
         let current: usize = msg_send![nswindow, collectionBehavior];
-        let _: () = msg_send![nswindow, setCollectionBehavior: current | MOVE_TO_ACTIVE_SPACE];
+        let _: () = msg_send![nswindow, setCollectionBehavior: current | CAN_JOIN_ALL_SPACES];
     }
 }
 #[cfg(not(target_os = "macos"))]
