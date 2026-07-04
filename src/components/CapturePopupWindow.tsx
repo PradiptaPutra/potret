@@ -44,7 +44,9 @@ export default function CapturePopupWindow() {
   function showWindow() {
     const w = getCurrentWindow();
     void w.show();
-    void w.setFocus();
+    // No setFocus(): focusing this popup activates the app on EVERY capture, and if the
+    // main window is visible on another Space, macOS switches the user to that desktop
+    // (issue #6). Hover actions, clicks, and native drag-out all work without key focus.
   }
 
   function resetDismissTimer() {

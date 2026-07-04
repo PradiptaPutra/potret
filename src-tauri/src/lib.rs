@@ -443,6 +443,9 @@ fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
         return;
     }
     if let Some(w) = app.get_webview_window("main") {
+        // Re-assert the Space pin before re-showing: if the app is active and this window
+        // orders front on another desktop, macOS would switch the user there (issue #6).
+        pin_main_to_active_space(&w);
         let _ = w.show();
     }
 }
