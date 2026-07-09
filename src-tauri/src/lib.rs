@@ -368,6 +368,9 @@ fn store_and_open_popup(
             x: pos_x,
             y: pos_y,
         }));
+        // Re-assert all-Spaces before the frontend shows it, so a screenshot never yanks the
+        // user back to this Space when they switch desktops (issue #6).
+        pin_to_all_spaces(&existing);
         // Send the base64 thumbnail directly — no second get_capture_popup_data round-trip
         let _ = existing.emit(
             "popup-refreshed",
@@ -419,6 +422,7 @@ fn emit_popup_pending(app: &AppHandle, capture_id: u64) {
             x: mon_x + 20.0,
             y: mon_y + mon_h - default_h - 80.0,
         }));
+        pin_to_all_spaces(&existing); // keep the popup on all Spaces (issue #6)
         let _ = existing.emit("popup-pending", PopupPendingData { capture_id });
     }
 }
@@ -445,7 +449,7 @@ fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
     if let Some(w) = app.get_webview_window("main") {
         // Re-assert the Space pin before re-showing: if the app is active and this window
         // orders front on another desktop, macOS would switch the user there (issue #6).
-        pin_main_to_active_space(&w);
+        pin_to_all_spaces(&w);
         let _ = w.show();
     }
 }
@@ -463,8 +467,14 @@ fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
 //       click), not on a passive Space switch — so it never fired for this case.
 //   CanJoinAllSpaces, set DIRECTLY on the NSWindow, means the window is already on whatever
 //   Space you're on, so macOS never needs to switch. Persistent, but re-asserted on every show.
+//
+// Applies to EVERY window, not just main: when you screenshot with the main window closed, the
+// capture-popup is the only Potret window on screen. If it lacks CanJoinAllSpaces it lives on
+// just that Space, and switching desktops yanks you back to it — exactly the bug the main-window-
+// only fixes never covered. The Tauri `.visible_on_all_workspaces(true)` builder flag is NOT
+// enough (see note above); the objc call is.
 #[cfg(target_os = "macos")]
-fn pin_main_to_active_space(win: &tauri::WebviewWindow) {
+fn pin_to_all_spaces(win: &tauri::WebviewWindow) {
     use objc2::msg_send;
     use objc2::runtime::AnyObject;
     // NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
@@ -484,11 +494,11 @@ fn pin_main_to_active_space(win: &tauri::WebviewWindow) {
     }
 }
 #[cfg(not(target_os = "macos"))]
-fn pin_main_to_active_space(_win: &tauri::WebviewWindow) {}
+fn pin_to_all_spaces(_win: &tauri::WebviewWindow) {}
 
-// Show + focus the main window on the user's CURRENT Space (see pin_main_to_active_space).
+// Show + focus the main window on the user's CURRENT Space (see pin_to_all_spaces).
 fn show_main_on_active_space(win: &tauri::WebviewWindow) {
-    pin_main_to_active_space(win);
+    pin_to_all_spaces(win);
     let _ = win.show();
     let _ = win.set_focus();
 }
@@ -622,6 +632,17 @@ fn precreate_overlay_windows(app: &AppHandle) {
         .inner_size(CORNER_POPUP_W, CORNER_POPUP_H)
         .position(0.0, screen_h - CORNER_POPUP_H)
         .build();
+    }
+
+    // Pin every overlay to all Spaces via objc. The `.visible_on_all_workspaces(true)` builder
+    // flag above is NOT reliable (see pin_to_all_spaces): without this, the capture-popup lives
+    // only on the Space it was shown on, so switching desktops after a screenshot yanks you back
+    // to that desktop (issue #6). The main window was already pinned; the popups were not — which
+    // is why the bug survived the earlier main-window-only fixes.
+    for label in ["capture-selector", "capture-popup", "history", "corner-history"] {
+        if let Some(w) = app.get_webview_window(label) {
+            pin_to_all_spaces(&w);
+        }
     }
 }
 
@@ -1960,7 +1981,7 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 // Move to the active Space on activation instead of yanking the user back
                 // to the Space this window was last on (issue #6).
-                pin_main_to_active_space(&win);
+                pin_to_all_spaces(&win);
                 let win_clone = win.clone();
                 win.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
