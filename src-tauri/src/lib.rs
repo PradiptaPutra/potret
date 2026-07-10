@@ -158,6 +158,10 @@ struct SelectorActivateData {
 }
 
 fn begin_capture(app: &AppHandle) -> u64 {
+    // Record the user's real frontmost app before the popup steals focus, so we can hand
+    // activation back to it afterward (fixes the Space-switch yank — see restore_prev_front_app).
+    remember_front_app();
+
     let Some(state) = app.try_state::<CapturePopupInfo>() else {
         return 0;
     };
@@ -495,6 +499,71 @@ fn pin_to_all_spaces(win: &tauri::WebviewWindow) {
 }
 #[cfg(not(target_os = "macos"))]
 fn pin_to_all_spaces(_win: &tauri::WebviewWindow) {}
+
+// The app that was frontmost when the capture began. We hand activation back to it after the
+// popup shows (see restore_prev_front_app) so macOS follows the user's real app across a Space
+// switch — not Potret. 0 = none recorded / it was us.
+#[cfg(target_os = "macos")]
+static PREV_FRONT_APP_PID: std::sync::Mutex<i32> = std::sync::Mutex::new(0);
+
+// Record whatever app is frontmost RIGHT NOW (called at the very start of a capture, before the
+// popup steals frontmost). Reading NSWorkspace.frontmostApplication is safe off the main thread.
+#[cfg(target_os = "macos")]
+fn remember_front_app() {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    unsafe {
+        let ws_cls = objc2::class!(NSWorkspace);
+        let ws: *mut AnyObject = msg_send![ws_cls, sharedWorkspace];
+        if ws.is_null() {
+            return;
+        }
+        let front: *mut AnyObject = msg_send![ws, frontmostApplication];
+        if front.is_null() {
+            return;
+        }
+        let pid: i32 = msg_send![front, processIdentifier];
+        let my_pid = std::process::id() as i32;
+        // Don't record ourselves — if Potret was already frontmost (capture from the main window)
+        // there's no other app to hand back to, and the main window joins all Spaces anyway.
+        if pid > 0 && pid != my_pid {
+            if let Ok(mut g) = PREV_FRONT_APP_PID.lock() {
+                *g = pid;
+            }
+        }
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn remember_front_app() {}
+
+// Re-activate the app that was frontmost before the capture. Showing the popup makes Potret the
+// active (frontmost) app; while it's frontmost, a manual Space switch drags the user back to the
+// popup's desktop — the "still need to click" bug (NSApp deactivate is a no-op on recent macOS).
+// Reactivating the previous app is exactly what the user's manual click did: it hands active
+// status to a settled window, so macOS stops following the just-shown popup.
+//
+// Must run on the main thread — AppKit is not thread-safe. Callers use run_on_main_thread.
+#[cfg(target_os = "macos")]
+fn restore_prev_front_app() {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    let pid = PREV_FRONT_APP_PID.lock().map(|g| *g).unwrap_or(0);
+    if pid <= 0 {
+        return;
+    }
+    unsafe {
+        let cls = objc2::class!(NSRunningApplication);
+        let app: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid];
+        if app.is_null() {
+            return;
+        }
+        // NSApplicationActivateIgnoringOtherApps = 1 << 1 (deprecated but still honored).
+        const ACTIVATE_IGNORING_OTHER_APPS: usize = 1 << 1;
+        let _: () = msg_send![app, activateWithOptions: ACTIVATE_IGNORING_OTHER_APPS];
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn restore_prev_front_app() {}
 
 // Show + focus the main window on the user's CURRENT Space (see pin_to_all_spaces).
 fn show_main_on_active_space(win: &tauri::WebviewWindow) {
@@ -1772,6 +1841,18 @@ async fn open_main_for_edit(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// Called by the capture-popup right after it shows itself. Showing the popup makes Potret the
+// frontmost app; this hands active status back to whatever was frontmost before the capture, so a
+// later Space switch doesn't drag the user to the popup's desktop (issue #6 — the "still need to
+// click" case). The short delay lets the window's show()/orderFront settle before we reactivate,
+// so we undo the activation instead of racing it.
+#[tauri::command]
+async fn resign_frontmost_app(app: AppHandle) -> Result<(), String> {
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    let _ = app.run_on_main_thread(restore_prev_front_app);
+    Ok(())
+}
+
 // Write the current capture to a temp file (with a clean name) for native drag-out, return its path.
 #[tauri::command]
 async fn stage_capture_for_drag(
@@ -2043,6 +2124,7 @@ pub fn run() {
             stage_capture_for_drag,
             stage_history_for_drag,
             open_main_for_edit,
+            resign_frontmost_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building potret")

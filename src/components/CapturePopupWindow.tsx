@@ -43,10 +43,15 @@ export default function CapturePopupWindow() {
 
   function showWindow() {
     const w = getCurrentWindow();
-    void w.show();
     // No setFocus(): focusing this popup activates the app on EVERY capture, and if the
     // main window is visible on another Space, macOS switches the user to that desktop
     // (issue #6). Hover actions, clicks, and native drag-out all work without key focus.
+    //
+    // show() itself still makes Potret the frontmost app, and while it's frontmost a manual
+    // Space switch drags the user back to the popup's desktop — the "still need to click" bug.
+    // Resign frontmost right after showing so macOS stops following us (backend delays a beat
+    // so the deactivate undoes show()'s activation instead of racing it).
+    void w.show().then(() => void invoke("resign_frontmost_app"));
   }
 
   function resetDismissTimer() {
