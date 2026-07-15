@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { startDrag } from "@crabnebula/tauri-plugin-drag";
-import { Copy, Download, Pencil, Image as ImageIcon, X, Check } from "lucide-react";
+import { Copy, Download, Pencil, Image as ImageIcon, X, Check, Pin } from "lucide-react";
 
 interface CaptureInfo {
   captureId: number;
@@ -232,6 +232,14 @@ export default function CapturePopupWindow() {
     }
   }
 
+  async function handlePin() {
+    if (!capture) return;
+    const full = await invoke<string | null>("get_capture_full_data", { captureId: capture.captureId });
+    if (!full) return;
+    await invoke("pin_screenshot", { data: full, imgWidth: capture.width, imgHeight: capture.height });
+    flashThenDismiss("Pinned!");
+  }
+
   async function handleDragOut(e: React.DragEvent) {
     e.preventDefault(); // cancel the HTML5 drag; use a native OS file drag instead
     if (!capture) return;
@@ -300,7 +308,7 @@ export default function CapturePopupWindow() {
           onDragStart={handleDragOut}
         />
 
-        {/* Hover layer: vignette + corner buttons + dismiss — hidden until you hover */}
+        {/* Chrome layer: scrim + corner icon buttons + center action pills — hidden until you hover */}
         <div
           style={{
             position: "absolute", inset: 0,
@@ -309,50 +317,35 @@ export default function CapturePopupWindow() {
             pointerEvents: "none", // never block the image; only the buttons below opt back in
           }}
         >
-          {/* Vignette so corner buttons are legible over any image */}
+          {/* Frosted scrim so buttons stay legible over any image */}
           <div
             style={{
               position: "absolute", inset: 0, pointerEvents: "none",
-              background:
-                "radial-gradient(ellipse at center, transparent 38%, rgba(0,0,0,0.50) 100%)",
+              background: "rgba(40,38,46,0.42)",
+              backdropFilter: "blur(14px)",
+              WebkitBackdropFilter: "blur(14px)",
             }}
           />
 
-          {/* ── 4 corner buttons ─────────────────────────────────────────── */}
-          <CornerBtn style={{ top: 9, left: 9 }}     icon={Copy}        label="Copy"       onClick={handleCopy}       active={hovered} />
-          <CornerBtn style={{ top: 9, right: 9 }}    icon={Download}    label="Save"       onClick={handleSave}       active={hovered} />
-          <CornerBtn style={{ bottom: 9, left: 9 }}  icon={Pencil}      label="Annotate"   onClick={handleEdit}       active={hovered} />
-          <CornerBtn style={{ bottom: 9, right: 9 }} icon={ImageIcon}   label="Background"  onClick={handleBackground} active={hovered} />
+          {/* ── 4 corner icon-only buttons ───────────────────────────────── */}
+          <CircleBtn style={{ top: 10, left: 10 }}     icon={Pin}       label="Pin"        onClick={handlePin}        active={hovered} />
+          <CircleBtn style={{ top: 10, right: 10 }}    icon={X}         label="Dismiss"    onClick={dismiss}          active={hovered} danger />
+          <CircleBtn style={{ bottom: 10, left: 10 }}  icon={Pencil}    label="Annotate"   onClick={handleEdit}       active={hovered} />
+          <CircleBtn style={{ bottom: 10, right: 10 }} icon={ImageIcon} label="Background" onClick={handleBackground} active={hovered} />
 
-          {/* ── Dismiss circle, top-center ───────────────────────────────── */}
-          <button
-            onClick={dismiss}
-            title="Dismiss"
+          {/* ── Center stacked pills — primary actions ───────────────────── */}
+          {/* pointerEvents stays "none" here — only the pill buttons themselves opt back
+              in, so the rest of the image (drag-out target) is never blocked by this box. */}
+          <div
             style={{
-              position: "absolute", top: 9, left: "50%", transform: "translateX(-50%)",
-              width: 20, height: 20, borderRadius: "50%",
-              background: "rgba(0,0,0,0.55)",
-              border: "1px solid rgba(255,255,255,0.16)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
-              cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              color: "rgba(255,255,255,0.65)",
-              transition: "background 0.12s, color 0.12s",
-              pointerEvents: hovered ? "auto" : "none",
-              zIndex: 11,
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = "rgba(255,69,58,0.78)";
-              e.currentTarget.style.color = "#fff";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = "rgba(0,0,0,0.55)";
-              e.currentTarget.style.color = "rgba(255,255,255,0.65)";
+              position: "absolute", inset: 0,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10,
+              pointerEvents: "none",
             }}
           >
-            <X size={9} strokeWidth={2.5} />
-          </button>
+            <PillBtn icon={Copy} label="Copy" onClick={handleCopy} active={hovered} />
+            <PillBtn icon={Download} label="Save" onClick={handleSave} active={hovered} />
+          </div>
         </div>
 
         {/* ── Feedback toast overlay ───────────────────────────────────── */}
@@ -434,19 +427,21 @@ export default function CapturePopupWindow() {
   );
 }
 
-/* ── Corner button (icon + label, glassy) ─────────────────────────────────── */
-function CornerBtn({
+/* ── Corner button (icon-only circle) ─────────────────────────────────────── */
+function CircleBtn({
   style: posStyle,
   icon: Icon,
   label,
   onClick,
   active,
+  danger,
 }: {
   style: React.CSSProperties;
   icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
   label: string;
   onClick: () => void;
   active: boolean;
+  danger?: boolean;
 }) {
   return (
     <button
@@ -455,28 +450,23 @@ function CornerBtn({
       style={{
         position: "absolute",
         ...posStyle,
-        display: "flex", alignItems: "center", gap: 4,
-        padding: "4px 8px 4px 6px",
-        borderRadius: 8,
-        background: "rgba(0,0,0,0.52)",
+        width: 30, height: 30, borderRadius: "50%",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(255,255,255,0.16)",
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
-        border: "1px solid rgba(255,255,255,0.18)",
-        color: "rgba(255,255,255,0.92)",
-        fontSize: 10.5, fontWeight: 550,
+        border: "1px solid rgba(255,255,255,0.24)",
+        color: "rgba(255,255,255,0.95)",
         cursor: "pointer",
-        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
         transition: "background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
         pointerEvents: active ? "auto" : "none",
         zIndex: 10,
-        letterSpacing: "-0.01em",
-        whiteSpace: "nowrap",
       }}
       onMouseEnter={e => {
-        e.currentTarget.style.background = "rgba(255,255,255,0.20)";
-        e.currentTarget.style.borderColor = "rgba(255,255,255,0.30)";
-        e.currentTarget.style.transform = "scale(1.05)";
+        e.currentTarget.style.background = danger ? "rgba(255,69,58,0.78)" : "rgba(255,255,255,0.20)";
+        e.currentTarget.style.borderColor = danger ? "rgba(255,69,58,0.5)" : "rgba(255,255,255,0.30)";
+        e.currentTarget.style.transform = "scale(1.08)";
       }}
       onMouseLeave={e => {
         e.currentTarget.style.background = "rgba(0,0,0,0.52)";
@@ -484,7 +474,53 @@ function CornerBtn({
         e.currentTarget.style.transform = "scale(1)";
       }}
     >
-      <Icon size={12} strokeWidth={1.85} />
+      <Icon size={14} strokeWidth={2} />
+    </button>
+  );
+}
+
+/* ── Center action pill (icon + label) ─────────────────────────────────────── */
+function PillBtn({
+  icon: Icon,
+  label,
+  onClick,
+  active,
+}: {
+  icon: React.ComponentType<{ size?: number; strokeWidth?: number }>;
+  label: string;
+  onClick: () => void;
+  active: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+        width: 118,
+        padding: "10px 0",
+        borderRadius: 999,
+        background: "rgba(244,244,246,0.97)",
+        color: "#0a0a0b",
+        fontSize: 13.5, fontWeight: 650,
+        border: "none",
+        cursor: "pointer",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.35)",
+        transition: "background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)",
+        pointerEvents: active ? "auto" : "none",
+        zIndex: 10,
+        letterSpacing: "-0.01em",
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.background = "#ffffff";
+        e.currentTarget.style.transform = "scale(1.04)";
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.background = "rgba(244,244,246,0.96)";
+        e.currentTarget.style.transform = "scale(1)";
+      }}
+    >
+      <Icon size={13} strokeWidth={2} />
       {label}
     </button>
   );

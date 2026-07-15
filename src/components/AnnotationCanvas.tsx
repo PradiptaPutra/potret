@@ -617,17 +617,36 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
 
   function toolBtnStyle(active: boolean): React.CSSProperties {
     return {
-      width: 30,
-      height: 30,
-      borderRadius: 6,
+      width: 32,
+      height: 32,
+      borderRadius: 8,
       border: "none",
-      background: active ? "rgba(255,255,255,0.18)" : "transparent",
-      color: active ? "#fff" : "rgba(255,255,255,0.55)",
+      background: active ? "#0A84FF" : "#2c2c2e",
+      color: active ? "#fff" : "rgba(255,255,255,0.78)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       cursor: "pointer",
       flexShrink: 0,
+      transition: "background 0.12s, color 0.12s",
+    };
+  }
+
+  // Undo/redo sit directly on the bar, no chip background (matches CleanShot).
+  function flatBtnStyle(disabled: boolean): React.CSSProperties {
+    return {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      border: "none",
+      background: "transparent",
+      color: "rgba(255,255,255,0.55)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      cursor: disabled ? "default" : "pointer",
+      flexShrink: 0,
+      opacity: disabled ? 0.35 : 1,
     };
   }
 
@@ -635,7 +654,7 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
     width: 1,
     height: 20,
     background: "rgba(255,255,255,0.12)",
-    margin: "0 4px",
+    margin: "0 5px",
     flexShrink: 0,
   };
 
@@ -668,25 +687,21 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
         flexDirection: "column",
       }}
     >
-      {/* ── Floating pill toolbar ─────────────────────────────────────────── */}
+      {/* ── Top titlebar-style toolbar — real bar, never overlaps the image ── */}
       <div
         style={{
-          position: "absolute",
-          top: 16,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 100,
-          background: "rgba(30,30,32,0.88)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 999,
-          padding: "4px 8px",
+          flexShrink: 0,
+          width: "100%",
+          height: 46,
+          background: "#1c1c1e",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          padding: "0 14px 0 78px", // left clearance for the native traffic-light buttons
           display: "flex",
           alignItems: "center",
-          gap: 2,
+          gap: 4,
           fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
           whiteSpace: "nowrap",
+          overflowX: "auto",
         }}
       >
         {cropRect ? (
@@ -705,12 +720,12 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
             <button
               onClick={() => { setCropRect(null); setTool("rect"); }}
               style={{
-                padding: "4px 12px",
-                borderRadius: 6,
-                background: "rgba(255,255,255,0.10)",
-                border: "1px solid rgba(255,255,255,0.15)",
+                padding: "6px 14px",
+                borderRadius: 8,
+                background: "#2c2c2e",
+                border: "none",
                 fontSize: 12,
-                fontWeight: 500,
+                fontWeight: 550,
                 color: "rgba(255,255,255,0.85)",
                 cursor: "pointer",
               }}
@@ -720,8 +735,8 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
             <button
               onClick={applyCrop}
               style={{
-                padding: "4px 12px",
-                borderRadius: 6,
+                padding: "6px 14px",
+                borderRadius: 8,
                 background: "#32D74B",
                 border: "none",
                 fontSize: 12,
@@ -736,6 +751,17 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
         ) : (
           // ── Normal toolbar ──────────────────────────────────────────────
           <>
+            {/* Crop — isolated at the far left, like CleanShot */}
+            <button
+              title="Crop"
+              onClick={() => setTool("crop")}
+              style={toolBtnStyle(tool === "crop")}
+            >
+              <Crop size={15} />
+            </button>
+
+            <div style={sepStyle} />
+
             {/* Tools group 1: select → pixelate */}
             {toolDefs.map(({ key, icon, label }) => (
               <button
@@ -848,17 +874,6 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
 
             <div style={sepStyle} />
 
-            {/* Crop tool */}
-            <button
-              title="Crop"
-              onClick={() => setTool("crop")}
-              style={toolBtnStyle(tool === "crop")}
-            >
-              <Crop size={15} />
-            </button>
-
-            <div style={sepStyle} />
-
             {/* Undo */}
             <button
               title="Undo (⌘Z)"
@@ -871,10 +886,7 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
                 });
               }}
               disabled={shapes.length === 0}
-              style={{
-                ...toolBtnStyle(false),
-                opacity: shapes.length === 0 ? 0.3 : 1,
-              }}
+              style={flatBtnStyle(shapes.length === 0)}
             >
               <RotateCcw size={15} />
             </button>
@@ -891,15 +903,12 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
                 });
               }}
               disabled={redoStack.length === 0}
-              style={{
-                ...toolBtnStyle(false),
-                opacity: redoStack.length === 0 ? 0.3 : 1,
-              }}
+              style={flatBtnStyle(redoStack.length === 0)}
             >
               <RotateCw size={15} />
             </button>
 
-            <div style={sepStyle} />
+            <div style={{ flex: 1 }} />
 
             {/* Background — drop the annotated image onto a gradient/custom backdrop */}
             <button
@@ -916,12 +925,12 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
               onClick={handleCopy}
               className="press"
               style={{
-                padding: "4px 12px",
-                borderRadius: 6,
-                background: "rgba(255,255,255,0.10)",
-                border: "1px solid rgba(255,255,255,0.15)",
+                padding: "6px 14px",
+                borderRadius: 8,
+                background: "#2c2c2e",
+                border: "none",
                 fontSize: 12,
-                fontWeight: 500,
+                fontWeight: 550,
                 color: "rgba(255,255,255,0.85)",
                 cursor: "pointer",
               }}
@@ -937,13 +946,13 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
               onClick={handleDone}
               className="press"
               style={{
-                padding: "4px 12px",
-                borderRadius: 6,
+                padding: "6px 14px",
+                borderRadius: 8,
                 background: "#32D74B",
                 border: "none",
                 fontSize: 12,
                 fontWeight: 600,
-                color: "#000",
+                color: "#fff",
                 cursor: "pointer",
               }}
             >
@@ -962,7 +971,7 @@ export default function AnnotationCanvas({ capture, onBack, onDone, onCopy, onBa
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          padding: "80px 24px 24px",
+          padding: "24px",
           boxSizing: "border-box",
         }}
       >

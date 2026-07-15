@@ -479,23 +479,30 @@ fn restore_main_window_after_capture(app: &AppHandle, main_was_visible: bool) {
 // enough (see note above); the objc call is.
 #[cfg(target_os = "macos")]
 fn pin_to_all_spaces(win: &tauri::WebviewWindow) {
-    use objc2::msg_send;
-    use objc2::runtime::AnyObject;
-    // NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
-    const CAN_JOIN_ALL_SPACES: usize = 1 << 0;
-    let Ok(ptr) = win.ns_window() else {
-        return;
-    };
-    if ptr.is_null() {
-        return;
-    }
-    // SAFETY: ptr is a valid NSWindow* for the lifetime of the window; we only read then set
-    // its collectionBehavior (an NSUInteger bitmask) via standard AppKit selectors.
-    unsafe {
-        let nswindow = &*(ptr as *const AnyObject);
-        let current: usize = msg_send![nswindow, collectionBehavior];
-        let _: () = msg_send![nswindow, setCollectionBehavior: current | CAN_JOIN_ALL_SPACES];
-    }
+    // setCollectionBehavior: drives an AppKit/WindowManagement transaction that MUST run on the
+    // main thread — calling it from a tokio command thread (e.g. open_main_for_edit via the
+    // annotate button) traps with SIGTRAP "Must only be used from the main thread" and kills the
+    // app. Dispatch the AppKit work to the main thread; this returns immediately.
+    let w = win.clone();
+    let _ = win.app_handle().run_on_main_thread(move || {
+        use objc2::msg_send;
+        use objc2::runtime::AnyObject;
+        // NSWindowCollectionBehaviorCanJoinAllSpaces = 1 << 0
+        const CAN_JOIN_ALL_SPACES: usize = 1 << 0;
+        let Ok(ptr) = w.ns_window() else {
+            return;
+        };
+        if ptr.is_null() {
+            return;
+        }
+        // SAFETY: ptr is a valid NSWindow* for the lifetime of the window; we only read then set
+        // its collectionBehavior (an NSUInteger bitmask) via standard AppKit selectors.
+        unsafe {
+            let nswindow = &*(ptr as *const AnyObject);
+            let current: usize = msg_send![nswindow, collectionBehavior];
+            let _: () = msg_send![nswindow, setCollectionBehavior: current | CAN_JOIN_ALL_SPACES];
+        }
+    });
 }
 #[cfg(not(target_os = "macos"))]
 fn pin_to_all_spaces(_win: &tauri::WebviewWindow) {}
@@ -2068,6 +2075,13 @@ pub fn run() {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = win_clone.hide();
+                        // Editor closed: hand active-app status back to the app the user was on
+                        // before capturing. Otherwise Potret stays frontmost and macOS drags the
+                        // user back to the editor's desktop on the next Space switch (issue #6 —
+                        // the annotate/close variant). Dispatch to the main thread for AppKit.
+                        let _ = win_clone
+                            .app_handle()
+                            .run_on_main_thread(restore_prev_front_app);
                     }
                 });
             }
