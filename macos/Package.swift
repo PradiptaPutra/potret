@@ -27,7 +27,11 @@ let package = Package(
         // Renders views offscreen to PNG. Stands in for the SwiftUI previews we don't get
         // without Xcode, and later generates the golden images for the render tests.
         .executableTarget(name: "PotretMockup", dependencies: ["PotretUI"]),
-        .testTarget(name: "PotretCoreTests", dependencies: ["PotretCore"]),
+        .testTarget(
+            name: "PotretCoreTests",
+            dependencies: ["PotretCore"],
+            resources: [.copy("Fixtures")]
+        ),
         .testTarget(name: "PotretRenderTests", dependencies: ["PotretRender"]),
     ]
 )
