@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Potret</string>
+	<key>CFBundleDisplayName</key>
+	<string>Potret</string>
+	<key>CFBundleExecutable</key>
+	<string>Potret</string>
+	<key>CFBundleIdentifier</key>
+	<string>__BUNDLE_ID__</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__BUILD__</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>MIT licensed. github.com/PradiptaPutra/potret</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+
+	<!-- Menu-bar accessory: no Dock tile, no app menu bar. The Tauri build deliberately did NOT
+	     set this, on the belief that an agent app cannot front its capture overlay from a global
+	     shortcut. That is not true in AppKit — a non-activating NSPanel shown with
+	     orderFrontRegardless() takes mouse and key events without the app ever activating, which
+	     is also why none of the Spaces/focus workarounds are ported. -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Potret needs screen recording access to capture screenshots.</string>
+
+	<!-- Stop macOS reaping the idle menu-bar app. -->
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>
