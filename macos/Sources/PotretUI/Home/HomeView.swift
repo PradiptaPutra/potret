@@ -129,6 +129,20 @@ public struct HomeView: View {
     /// be stretched by its contents.
     private var sidebarColumn: some View {
         VStack(spacing: 0) {
+            // The app's own icon at the top of its own window. Loaded from the bundle rather than
+            // an asset catalog — there is none without Xcode — via the icon macOS already uses.
+            HStack(spacing: Space.s) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: Space.xl + Space.xs, height: Space.xl + Space.xs)
+                Text("Potret")
+                    .font(TypeRamp.heading)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Space.m)
+            .padding(.top, Space.xxl)
+            .padding(.bottom, Space.s)
+
             sidebar
             Divider()
             HStack {

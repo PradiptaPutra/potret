@@ -5,7 +5,7 @@ import PotretCore
 import PotretRecord
 import SwiftUI
 
-/// State for trimming a finished recording.
+/// State for reviewing and trimming a finished recording.
 @MainActor
 @Observable
 public final class TrimModel {
@@ -16,21 +16,27 @@ public final class TrimModel {
     public var end: TimeInterval
     public var isExporting = false
     public var status: String?
+    /// Thumbnails sampled evenly across the recording — the scrubber is the recording itself.
+    public private(set) var frames: [NSImage] = []
+    public private(set) var currentTime: TimeInterval = 0
+    public private(set) var isPlaying = false
 
     let player: AVPlayer
+    private var timeObserver: Any?
 
     public init(recording: Recording) {
         url = recording.url
-        // A zero duration would make every slider range invalid; treat it as a minimum.
+        // A zero duration would make every range invalid; treat it as a minimum.
         duration = max(recording.duration, 0.1)
         pixelSize = recording.pixelSize
         end = max(recording.duration, 0.1)
         player = AVPlayer(url: recording.url)
+        player.actionAtItemEnd = .none
     }
 
     public var trimmedDuration: TimeInterval { max(0, end - start) }
 
-    /// Whether trimming would actually change anything, so Save can say what it will do.
+    /// Whether trimming would change anything, so Save can say what it will do.
     public var isTrimmed: Bool {
         start > 0.05 || end < duration - 0.05
     }
@@ -46,7 +52,38 @@ public final class TrimModel {
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
-    public func preview(_ time: TimeInterval) {
+    // MARK: Playback
+
+    /// Review loops inside the selection, so what plays is exactly what will be saved.
+    public func startObserving() {
+        guard timeObserver == nil else { return }
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.05, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self] time in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.currentTime = time.seconds
+                if self.isPlaying, time.seconds >= self.end - 0.02 {
+                    self.seek(self.start)
+                }
+            }
+        }
+    }
+
+    /// Explicit rather than deinit: a deinit on a @MainActor type cannot touch its state under
+    /// strict concurrency, and the observer must be removed from the player it was added to.
+    public func stop() {
+        player.pause()
+        isPlaying = false
+        if let timeObserver {
+            player.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+        }
+    }
+
+    public func seek(_ time: TimeInterval) {
+        currentTime = time
         player.seek(
             to: CMTime(seconds: time, preferredTimescale: 600),
             toleranceBefore: .zero,
@@ -54,9 +91,61 @@ public final class TrimModel {
         )
     }
 
+    public func togglePlayback() {
+        if isPlaying {
+            player.pause()
+            isPlaying = false
+        } else {
+            if currentTime < start || currentTime >= end - 0.02 { seek(start) }
+            player.play()
+            isPlaying = true
+        }
+    }
+
     public func playTrimmed() {
-        preview(start)
+        seek(start)
         player.play()
+        isPlaying = true
+    }
+
+    /// Move a handle. Dragging pauses playback and previews the new edge, so the frame under the
+    /// pointer is the frame that will be the cut.
+    public func setStart(_ time: TimeInterval) {
+        player.pause()
+        isPlaying = false
+        start = min(max(0, time), end - 0.25)
+        seek(start)
+    }
+
+    public func setEnd(_ time: TimeInterval) {
+        player.pause()
+        isPlaying = false
+        end = max(min(duration, time), start + 0.25)
+        seek(end)
+    }
+
+    // MARK: Frames
+
+    public func loadFrames(count: Int = 24) {
+        guard frames.isEmpty else { return }
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 200, height: 0)
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.2, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.2, preferredTimescale: 600)
+        let times = (0..<count).map {
+            CMTime(seconds: duration * Double($0) / Double(count), preferredTimescale: 600)
+        }
+        Task { [weak self] in
+            var collected: [NSImage] = []
+            for await result in generator.images(for: times) {
+                if let cg = try? result.image {
+                    collected.append(NSImage(cgImage: cg, size: .zero))
+                }
+            }
+            self?.frames = collected
+        }
     }
 }
 
@@ -64,16 +153,17 @@ public final class TrimModel {
 ///
 /// Not SwiftUI's `VideoPlayer`: that type lives in the `_AVKit_SwiftUI` cross-import overlay, and
 /// this project builds tests with `-disable-cross-import-overlays` (the only way to import Testing
-/// and Foundation together on a toolchain without Xcode — see TESTING.md). Wrapping AVPlayerView
-/// also gives the standard transport controls for free.
+/// and Foundation together on a toolchain without Xcode — see TESTING.md). Controls are off; the
+/// HUD is the transport.
 struct PlayerView: NSViewRepresentable {
     let player: AVPlayer
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.player = player
-        view.controlsStyle = .inline
+        view.controlsStyle = .none
         view.videoGravity = .resizeAspect
+        view.showsFullScreenToggleButton = false
         return view
     }
 
@@ -82,10 +172,12 @@ struct PlayerView: NSViewRepresentable {
     }
 }
 
-/// Trim a recording, then save it or export a GIF.
+/// Review and trim a recording.
 ///
-/// Passthrough export, so trimming re-muxes rather than re-encodes: it is near-instant and loses
-/// no quality. Cuts land on keyframes, which is why the recorder writes one every two seconds.
+/// The video fills the window; everything else floats over the bottom of it. The scrubber is a
+/// filmstrip of the recording itself with drag handles at each end, QuickTime-style — you see
+/// what you are cutting rather than reading a number. Playback loops inside the selection, so
+/// what plays is what will be saved.
 public struct TrimView: View {
     @Bindable var model: TrimModel
     let onSave: (URL) -> Void
@@ -105,115 +197,70 @@ public struct TrimView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             PlayerView(player: model.player)
-                .frame(minHeight: 280)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: Space.m) {
-                handles
-                footer
-            }
-            .padding(Space.m)
+            hud
+                .padding(Space.m)
         }
-        .frame(minWidth: 640, minHeight: 460)
-        // Start playing at once: a still frame with a Play button somewhere below it read as
-        // "the preview is broken". Seeing it move is the review.
-        .onAppear { model.playTrimmed() }
+        .background(.black)
+        .frame(minWidth: 720, minHeight: 480)
+        .onAppear {
+            model.loadFrames()
+            model.startObserving()
+            model.playTrimmed()
+        }
+        .onDisappear { model.stop() }
     }
 
-    private var handles: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            HStack {
-                Text("Trim")
-                    .font(TypeRamp.heading)
-                Text("Drag Start and End to cut the recording down. It is already in your library; saving copies it to your folder.")
-                    .font(TypeRamp.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                Spacer()
-                Text("\(DurationFormat.clock(model.trimmedDuration)) of \(DurationFormat.clock(model.duration))")
+    private var hud: some View {
+        VStack(spacing: Space.s) {
+            FilmstripScrubber(model: model)
+
+            HStack(spacing: Space.m) {
+                Button {
+                    model.togglePlayback()
+                } label: {
+                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                        .frame(width: Space.l, height: Space.l)
+                }
+                .buttonStyle(.accessoryBar)
+                .help(model.isPlaying ? "Pause" : "Play selection")
+                .keyboardShortcut(.space, modifiers: [])
+
+                Text("\(Clock.precise(model.start)) – \(Clock.precise(model.end))")
+                    .font(TypeRamp.mono)
+                Text("· \(Clock.precise(model.trimmedDuration))")
                     .font(TypeRamp.mono)
                     .foregroundStyle(.secondary)
-            }
 
-            labelled("Start", DurationFormat.clock(model.start)) {
-                Slider(
-                    value: Binding(
-                        get: { model.start },
-                        set: { value in
-                            // Keep at least a quarter second between the handles, or the export
-                            // produces a file with no frames.
-                            model.start = min(value, model.end - 0.25)
-                            model.preview(model.start)
-                        }
-                    ),
-                    in: 0...model.duration
-                )
-            }
+                if let status = model.status {
+                    Text(status)
+                        .font(TypeRamp.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-            labelled("End", DurationFormat.clock(model.end)) {
-                Slider(
-                    value: Binding(
-                        get: { model.end },
-                        set: { value in
-                            model.end = max(value, model.start + 0.25)
-                            model.preview(model.end)
-                        }
-                    ),
-                    in: 0...model.duration
-                )
+                Spacer(minLength: 0)
+
+                Button("Close") { onDiscard() }
+                    .buttonStyle(.bordered)
+                    .keyboardShortcut(.cancelAction)
+
+                // The estimate is shown before the click: a GIF of a long recording can be
+                // enormous, and there is no way to find out afterwards except by writing it.
+                Button("GIF · ~\(model.gifEstimate)") { exportGIF() }
+                    .buttonStyle(.bordered)
+                    .disabled(model.isExporting)
+
+                Button(model.isTrimmed ? "Save Trimmed" : "Save") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isExporting)
+                    .keyboardShortcut(.defaultAction)
             }
         }
-    }
-
-    private func labelled(
-        _ title: String,
-        _ value: String,
-        @ViewBuilder _ content: () -> some View
-    ) -> some View {
-        HStack(spacing: Space.s) {
-            Text(title)
-                .font(TypeRamp.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .leading)
-            content()
-            Text(value)
-                .font(TypeRamp.mono)
-                .foregroundStyle(.secondary)
-                .frame(width: 56, alignment: .trailing)
-        }
-    }
-
-    private var footer: some View {
-        HStack(spacing: Space.s) {
-            Button("Play Selection", systemImage: "play.fill") { model.playTrimmed() }
-                .buttonStyle(.bordered)
-
-            if let status = model.status {
-                Text(status)
-                    .font(TypeRamp.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            // "Close", not "Discard": the recording is already stored, and Discard read as if
-            // closing the window would delete it.
-            Button("Close") { onDiscard() }
-                .buttonStyle(.bordered)
-
-            // The estimate is shown before the click, because a GIF of a long recording can be
-            // enormous and there is no way to find out afterwards except by writing it.
-            Button("Save as GIF · ~\(model.gifEstimate)") { exportGIF() }
-                .buttonStyle(.bordered)
-                .disabled(model.isExporting)
-
-            Button(model.isTrimmed ? "Save Trimmed Video" : "Save Video") { save() }
-                .buttonStyle(.borderedProminent)
-                .disabled(model.isExporting)
-        }
+        .padding(Space.m)
+        .potretSurface(.hud, radius: Radius.md)
     }
 
     private func save() {
@@ -245,9 +292,7 @@ public struct TrimView: View {
             let output = model.url.deletingLastPathComponent()
                 .appending(path: "\(model.url.deletingPathExtension().lastPathComponent).gif")
             do {
-                try await VideoTools.exportGIF(
-                    model.url, from: model.start, to: model.end, to: output
-                )
+                try await VideoTools.exportGIF(model.url, from: model.start, to: model.end, to: output)
                 model.isExporting = false
                 model.status = nil
                 onExportGIF(output)
@@ -256,5 +301,119 @@ public struct TrimView: View {
                 model.status = "GIF failed: \(error.localizedDescription)"
             }
         }
+    }
+}
+
+/// The recording as a strip of frames, with a draggable handle at each end and a playhead.
+struct FilmstripScrubber: View {
+    @Bindable var model: TrimModel
+    private let height: CGFloat = 48
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let startX = width * CGFloat(model.start / model.duration)
+            let endX = width * CGFloat(model.end / model.duration)
+            let playheadX = width * CGFloat(min(max(model.currentTime, 0), model.duration) / model.duration)
+
+            ZStack(alignment: .leading) {
+                strip(width: width)
+                    .contentShape(Rectangle())
+                    // Click or drag anywhere on the strip to scrub.
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                model.player.pause()
+                                model.seek(time(at: value.location.x, width: width))
+                            }
+                    )
+
+                // Dim what is cut.
+                Rectangle().fill(.black.opacity(0.6))
+                    .frame(width: max(0, startX), height: height)
+                    .allowsHitTesting(false)
+                Rectangle().fill(.black.opacity(0.6))
+                    .frame(width: max(0, width - endX), height: height)
+                    .offset(x: endX)
+                    .allowsHitTesting(false)
+
+                // Selection frame.
+                Radius.shape(Radius.sm)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .frame(width: max(0, endX - startX), height: height)
+                    .offset(x: startX)
+                    .allowsHitTesting(false)
+
+                // Playhead.
+                Rectangle()
+                    .fill(.white)
+                    .frame(width: 2, height: height + Space.s)
+                    .offset(x: playheadX - 1, y: 0)
+                    .allowsHitTesting(false)
+
+                handle
+                    .offset(x: startX - Space.s / 2)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                model.setStart(time(at: startX + value.translation.width, width: width))
+                            }
+                    )
+                    .help("Drag to set where the recording starts")
+
+                handle
+                    .offset(x: endX - Space.s / 2)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                model.setEnd(time(at: endX + value.translation.width, width: width))
+                            }
+                    )
+                    .help("Drag to set where the recording ends")
+            }
+        }
+        .frame(height: height)
+    }
+
+    private func time(at x: CGFloat, width: CGFloat) -> TimeInterval {
+        guard width > 0 else { return 0 }
+        return TimeInterval(min(max(x, 0), width) / width) * model.duration
+    }
+
+    @ViewBuilder
+    private func strip(width: CGFloat) -> some View {
+        if model.frames.isEmpty {
+            Radius.shape(Radius.sm).fill(.white.opacity(0.08))
+                .frame(width: width, height: height)
+        } else {
+            HStack(spacing: 0) {
+                ForEach(Array(model.frames.enumerated()), id: \.offset) { _, frame in
+                    Image(nsImage: frame)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: width / CGFloat(model.frames.count), height: height)
+                        .clipped()
+                }
+            }
+            .clipShape(Radius.shape(Radius.sm))
+        }
+    }
+
+    private var handle: some View {
+        Capsule()
+            .fill(Color.accentColor)
+            .frame(width: Space.s, height: height + Space.s)
+            .overlay(Capsule().fill(.white.opacity(0.9)).frame(width: 2, height: Space.l))
+            .shadow(color: .black.opacity(0.4), radius: 2)
+    }
+}
+
+/// Tenth-of-a-second times for trimming, where whole seconds are too coarse to place a cut.
+enum Clock {
+    static func precise(_ seconds: TimeInterval) -> String {
+        let clamped = max(0, seconds)
+        let minutes = Int(clamped) / 60
+        let secs = clamped - Double(minutes * 60)
+        return String(format: "%d:%04.1f", minutes, secs)
     }
 }
