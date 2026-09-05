@@ -20,6 +20,9 @@ public final class AppCoordinator {
     private let historyPanel: HistoryPanelController
     /// Set by the app delegate so the history panel can anchor under the menu-bar item.
     public weak var statusButton: NSStatusBarButton?
+    private let cornerHover: CornerHoverController
+    private var settingsModel: SettingsModel?
+    private var settingsWindow: MainWindowController?
 
     /// Guards against a hotkey that repeats or a menu item double-firing. Matches the Tauri app's
     /// 500ms, which existed for the same reason.
@@ -51,6 +54,28 @@ public final class AppCoordinator {
         actions.delete = { [weak model] item in model?.delete(item) }
         actions.clearAll = { [weak model] in model?.clearAll() }
         self.historyPanel = HistoryPanelController(model: model, actions: actions)
+        self.cornerHover = CornerHoverController(model: model, actions: actions)
+    }
+
+    /// Open Settings, creating it on first use.
+    public func showSettings() {
+        if settingsWindow == nil {
+            let model = SettingsModel(
+                configStore: configStore,
+                historyStore: historyStore,
+                applyShortcuts: { [weak self] combos in
+                    guard let self else { return [:] }
+                    self.hotKeys.apply(combos)
+                    return self.hotKeys.failures
+                }
+            )
+            settingsModel = model
+            settingsWindow = MainWindowController(title: "Potret Settings") {
+                SettingsView(model: model)
+            }
+        }
+        settingsModel?.shortcutFailures = hotKeys.failures
+        settingsWindow?.show()
     }
 
     /// Show or hide the Recent Captures panel.
@@ -94,6 +119,9 @@ public final class AppCoordinator {
 
         // The empty state names the user's own shortcut rather than a hardcoded default.
         historyPanel.setCaptureHint(combos[.captureFullscreen]?.displayString)
+
+        cornerHover.isEnabled = config.cornerPopupEnabled
+        cornerHover.install()
 
         // Retention runs at launch as well as after each save: the Tauri app kept every capture
         // forever while showing only the newest 50, so an upgrading user may arrive with a large

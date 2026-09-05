@@ -36,6 +36,8 @@ public final class StatusItemController {
         menu.addItem(.separator())
         add(menu, "Recent Captures", #selector(showHistory))
         menu.addItem(.separator())
+        add(menu, "Settings…", #selector(showSettings))
+        menu.addItem(.separator())
 
         // A dead hotkey is otherwise invisible until the user presses it and nothing happens.
         let failures = coordinator.shortcutFailures
@@ -79,6 +81,11 @@ public final class StatusItemController {
     @objc private func captureFullscreen() {
         Log.ui.info("menu: Capture Screen")
         coordinator.capture(.fullscreen)
+    }
+
+    @objc private func showSettings() {
+        Log.ui.info("menu: Settings")
+        coordinator.showSettings()
     }
 
     @objc private func showHistory() {
