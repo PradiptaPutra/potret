@@ -14,6 +14,7 @@ public final class AppCoordinator {
     private let historyStore: HistoryStore
     private let popup = CapturePopupController()
     private let hotKeys = HotKeyCenter()
+    private let selector = SelectorCoordinator()
 
     /// Guards against a hotkey that repeats or a menu item double-firing. Matches the Tauri app's
     /// 500ms, which existed for the same reason.
@@ -89,14 +90,40 @@ public final class AppCoordinator {
             return
         }
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let target = try await self.target(for: mode) else { return }
-                let captured = try await self.engine.capture(target)
-                try await self.finish(captured)
-            } catch {
-                self.present(error: error)
+        switch mode {
+        case .area:
+            beginAreaSelection()
+        case .fullscreen, .window:
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    guard let target = try await self.target(for: mode) else { return }
+                    let captured = try await self.engine.capture(target)
+                    try await self.finish(captured)
+                } catch {
+                    self.present(error: error)
+                }
+            }
+        }
+    }
+
+    /// Area capture runs the selector first, then captures the chosen region.
+    ///
+    /// The popup is dismissed before the overlay appears so a previous capture's panel cannot end
+    /// up inside the new one — though even if it did, SCContentFilter excludes our own windows.
+    private func beginAreaSelection() {
+        guard !selector.isActive else { return }
+        popup.dismiss()
+
+        selector.begin { [weak self] rect, displayID in
+            guard let self, let rect, let displayID else { return } // nil means cancelled
+            Task {
+                do {
+                    let captured = try await self.engine.capture(.region(rect, on: displayID))
+                    try await self.finish(captured)
+                } catch {
+                    self.present(error: error)
+                }
             }
         }
     }
@@ -113,10 +140,12 @@ public final class AppCoordinator {
         switch mode {
         case .fullscreen:
             return .display(active.id)
-        case .window, .area:
-            // Window picking and the region selector arrive with the rest of Phase 1; falling back
-            // to the full display is a placeholder, not the shipped behaviour.
+        case .window:
+            // The window picker lands with the rest of Phase 1; falling back to the full display
+            // is a placeholder, not the shipped behaviour.
             return .display(active.id)
+        case .area:
+            return nil // handled by the selector, never reaches here
         }
     }
 

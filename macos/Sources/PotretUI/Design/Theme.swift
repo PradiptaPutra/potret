@@ -38,6 +38,23 @@ public enum TypeRamp {
     public static let caption = Font.caption
     /// Dimensions, file sizes, filenames — anything where digits should not jitter.
     public static let mono = Font.caption.monospacedDigit()
+
+    /// AppKit equivalents, for the surfaces drawn with CGContext and NSAttributedString rather
+    /// than SwiftUI — the selector overlay repaints per mouse-move and draws its text directly.
+    /// NSFont is not Sendable, so these are computed rather than stored — an NSFont held in a
+    /// static `let` is a shared mutable global as far as strict concurrency is concerned. They are
+    /// cheap: the font cache makes each call a lookup.
+    @MainActor
+    public enum AppKit {
+        /// Dimension readout. Monospaced digits so the numbers do not jitter as a drag resizes.
+        public static var badge: NSFont {
+            NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        }
+        /// Instructional text on an overlay.
+        public static var hint: NSFont {
+            NSFont.systemFont(ofSize: 12, weight: .medium)
+        }
+    }
 }
 
 public enum Motion {

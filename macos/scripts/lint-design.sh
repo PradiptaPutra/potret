@@ -45,7 +45,7 @@ check "hardcoded colour literal (use Theme or a system colour)" \
 
 check "hardcoded font size (use the semantic type ramp)" \
     "$SOURCES" \
-    '\.font\(\.system\(size:|NSFont\.systemFont\(ofSize:' \
+    '\.font\(\.system\(size:|NSFont\.[a-zA-Z]*[Ff]ont\(ofSize:' \
     "Sources/PotretUI/Design/Theme.swift"
 
 check "hardcoded corner radius (use Radius.sm/md/lg)" \
