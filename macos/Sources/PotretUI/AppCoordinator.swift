@@ -351,7 +351,7 @@ public final class AppCoordinator {
                 let png = try ImageEncoder.encode(poster, format: .png, quality: 100)
                 let thumbnailImage = try ImageEncoder.thumbnail(from: png)
                 let thumbnail = try ImageEncoder.encode(thumbnailImage, format: .png, quality: 100)
-                _ = try self.historyStore.saveRecording(
+                let stored = try self.historyStore.saveRecording(
                     videoURL: recording.url,
                     thumbnailData: thumbnail,
                     pixelSize: recording.pixelSize,
@@ -359,7 +359,19 @@ public final class AppCoordinator {
                 )
                 self.historyModel.load()
                 Log.capture.info("recording saved to history")
-                self.openTrimmer(for: recording)
+
+                // Open the trimmer on the STORED file, not the one that was just recorded.
+                // saveRecording MOVES the temp file into the history directory, so the original
+                // URL is dead by this point — the player had nothing to play and saving copied
+                // from a path that no longer existed.
+                self.openTrimmer(
+                    for: Recording(
+                        url: stored.imageURL,
+                        duration: recording.duration,
+                        pixelSize: recording.pixelSize,
+                        fileSize: stored.fileSize
+                    )
+                )
             } catch {
                 Log.capture.error(
                     "storing recording failed: \(error.localizedDescription, privacy: .public)"
@@ -403,6 +415,10 @@ public final class AppCoordinator {
             )
             let destination = FilenameTemplate(cachedConfig.filenameTemplate)
                 .uniqueURL(in: directory, ext: ext)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.path])
+            }
+            // Copy, never move: the source may be the history copy, which has to stay.
             try FileManager.default.copyItem(at: url, to: destination)
             Log.capture.info("saved recording to \(destination.lastPathComponent, privacy: .public)")
             toast.show("Saved \(destination.lastPathComponent)")

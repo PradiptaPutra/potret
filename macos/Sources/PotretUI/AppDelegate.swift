@@ -85,6 +85,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.ui.info("POTRET_EDIT_LATEST set")
                 coordinator.editLatestForTesting()
             }
+            if ProcessInfo.processInfo.environment["POTRET_SHOW_HOME"] != nil {
+                Log.ui.info("POTRET_SHOW_HOME set")
+                coordinator.showHome()
+            }
             if ProcessInfo.processInfo.environment["POTRET_SHOW_CORNER"] != nil {
                 Log.ui.info("POTRET_SHOW_CORNER set — opening the corner stack")
                 coordinator.showCornerStack()
