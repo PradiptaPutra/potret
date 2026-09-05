@@ -323,6 +323,7 @@ struct FilmstripScrubber: View {
     private let height: CGFloat = 56
     private let handleWidth: CGFloat = Space.l
     private static let space = "filmstrip"
+    @State private var hoveringHandle = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -352,11 +353,20 @@ struct FilmstripScrubber: View {
                     .offset(x: endX)
                     .allowsHitTesting(false)
 
-                // Bracket around the selection.
+                // Bracket around the selection, with its length on it — CapCut labels the clip.
                 Radius.shape(Radius.sm)
                     .strokeBorder(Color.accentColor, lineWidth: 3)
                     .frame(width: max(0, endX - startX), height: height)
                     .offset(x: startX)
+                    .allowsHitTesting(false)
+                Text(Clock.precise(model.trimmedDuration))
+                    .font(TypeRamp.mono)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Space.s)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor, in: Capsule())
+                    .frame(width: max(0, endX - startX), alignment: .center)
+                    .offset(x: startX, y: -(height / 2 + Space.m))
                     .allowsHitTesting(false)
 
                 // Playhead.
@@ -393,6 +403,21 @@ struct FilmstripScrubber: View {
         }
         .frame(height: height)
         .padding(.horizontal, handleWidth)
+        // Room above for the duration pill.
+        .padding(.top, Space.l + Space.s)
+        .overlay(alignment: .bottom) {
+            // Where the whole recording starts and ends, under the strip.
+            HStack {
+                Text(Clock.precise(0))
+                Spacer()
+                Text(Clock.precise(model.duration))
+            }
+            .font(TypeRamp.caption)
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, handleWidth)
+            .offset(y: Space.l)
+        }
+        .padding(.bottom, Space.m)
     }
 
     private func time(at x: CGFloat, width: CGFloat) -> TimeInterval {
@@ -435,7 +460,13 @@ struct FilmstripScrubber: View {
                 .fontWeight(.bold)
                 .foregroundStyle(.white)
         )
+        .brightness(hoveringHandle ? 0.15 : 0)
         .contentShape(Rectangle())
+        // The pointer says "this slides sideways" before you grab it.
+        .onHover { inside in
+            hoveringHandle = inside
+            if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+        }
     }
 }
 

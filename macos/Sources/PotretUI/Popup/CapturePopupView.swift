@@ -121,6 +121,10 @@ public struct CapturePopupView: View {
                         // Hold the countdown: a drag started at second four must not have its
                         // source dismissed mid-gesture.
                         onBegan: { actions.dragBegan?() },
+                        // A click that does not become a drag opens the editor. The overlay
+                        // owns the mouse, so this is the only place a click on the preview can
+                        // be seen — it was never wired, which is why clicking did nothing.
+                        onClick: { actions.annotate?() },
                         onEnded: { accepted in actions.dragEnded?(accepted) }
                     )
                 )

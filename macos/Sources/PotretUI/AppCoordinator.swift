@@ -408,8 +408,9 @@ public final class AppCoordinator {
     private func openTrimmer(for recording: Recording) {
         let model = TrimModel(recording: recording)
         trimModel = model
+        let title = "Recording · \(Int(recording.pixelSize.width))×\(Int(recording.pixelSize.height)) · \(DurationFormat.clock(recording.duration))"
         trimWindow = MainWindowController(
-            title: "Recording",
+            title: title,
             defaultSize: NSSize(width: 720, height: 520),
             resizable: true
         ) { [weak self] in
