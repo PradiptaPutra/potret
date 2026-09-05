@@ -66,6 +66,29 @@ struct CoordinateSpaceTests {
         }
     }
 
+    @Test("CG global (top-left) converts to AppKit global (bottom-left)")
+    func cgToAppKit() {
+        // 982pt-tall primary display. A window flush against the top of the screen in CG space
+        // has y = 0; in AppKit space its origin sits its own height below the top.
+        let atTop = CGRect(x: 100, y: 0, width: 400, height: 300)
+        let converted = CoordinateSpace.appKitGlobal(cgGlobalRect: atTop, primaryHeight: 982)
+        #expect(converted == CGRect(x: 100, y: 682, width: 400, height: 300))
+
+        // A window flush against the bottom sits at AppKit y = 0.
+        let atBottom = CGRect(x: 0, y: 682, width: 400, height: 300)
+        #expect(
+            CoordinateSpace.appKitGlobal(cgGlobalRect: atBottom, primaryHeight: 982).minY == 0
+        )
+    }
+
+    @Test("The CG/AppKit conversion is its own inverse")
+    func cgAppKitRoundTrip() {
+        let rect = CGRect(x: 42, y: 137, width: 800, height: 600)
+        let there = CoordinateSpace.appKitGlobal(cgGlobalRect: rect, primaryHeight: 982)
+        let back = CoordinateSpace.cgGlobal(appKitRect: there, primaryHeight: 982)
+        #expect(back == rect)
+    }
+
     @Test("Pixel conversion scales, and rounds outward so no edge is cropped")
     func pixelScaling() {
         let rect = CGRect(x: 10.4, y: 20.6, width: 100.2, height: 50.9)

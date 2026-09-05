@@ -50,6 +50,29 @@ public enum CoordinateSpace {
         )
     }
 
+    /// ScreenCaptureKit and CGWindowList report window frames in **CG global** space: origin at
+    /// the top-left of the primary display, y increasing downward. AppKit hit-testing works in
+    /// **AppKit global** space: origin bottom-left of the primary display, y increasing upward.
+    ///
+    /// Both are called "global coordinates" and both are in points, which makes them easy to
+    /// confuse — and a window picker that confuses them highlights the wrong window everywhere
+    /// except the vertical centre of the primary display.
+    ///
+    /// - Parameter primaryHeight: height of the primary display, the axis both spaces hinge on.
+    public static func appKitGlobal(cgGlobalRect rect: CGRect, primaryHeight: CGFloat) -> CGRect {
+        CGRect(
+            x: rect.minX,
+            y: primaryHeight - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    /// Inverse of `appKitGlobal(cgGlobalRect:primaryHeight:)` — the transform is its own inverse.
+    public static func cgGlobal(appKitRect rect: CGRect, primaryHeight: CGFloat) -> CGRect {
+        appKitGlobal(cgGlobalRect: rect, primaryHeight: primaryHeight)
+    }
+
     /// Points to backing pixels. Rounded outward so a selection never loses an edge row to
     /// rounding — capturing one pixel too many is invisible, one too few crops the content.
     public static func pixels(from rect: CGRect, scale: CGFloat) -> CGRect {

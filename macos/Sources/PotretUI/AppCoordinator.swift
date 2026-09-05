@@ -15,6 +15,7 @@ public final class AppCoordinator {
     private let popup = CapturePopupController()
     private let hotKeys = HotKeyCenter()
     private let selector = SelectorCoordinator()
+    private let windowPicker = WindowPickerCoordinator()
 
     /// Guards against a hotkey that repeats or a menu item double-firing. Matches the Tauri app's
     /// 500ms, which existed for the same reason.
@@ -112,7 +113,9 @@ public final class AppCoordinator {
         switch mode {
         case .area:
             beginAreaSelection()
-        case .fullscreen, .window:
+        case .window:
+            beginWindowPicking()
+        case .fullscreen:
             Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -134,6 +137,43 @@ public final class AppCoordinator {
     ///
     /// The popup is dismissed before the overlay appears so a previous capture's panel cannot end
     /// up inside the new one — though even if it did, SCContentFilter excludes our own windows.
+    /// Window capture presents the picker, then captures whatever was clicked.
+    private func beginWindowPicking() {
+        guard !windowPicker.isActive else { return }
+        popup.dismiss()
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let windows = try await self.engine.windows()
+                guard !windows.isEmpty else {
+                    Log.capture.error("no capturable windows")
+                    return
+                }
+                self.windowPicker.begin(windows: windows) { [weak self] id in
+                    guard let self, let id else { return } // nil means cancelled
+                    Task {
+                        do {
+                            let captured = try await self.engine.capture(.window(id))
+                            Log.capture.info("captured window \(id)")
+                            try await self.finish(captured)
+                        } catch {
+                            Log.capture.error(
+                                "window capture failed: \(error.localizedDescription, privacy: .public)"
+                            )
+                            self.present(error: error)
+                        }
+                    }
+                }
+            } catch {
+                Log.capture.error(
+                    "could not list windows: \(error.localizedDescription, privacy: .public)"
+                )
+                self.present(error: error)
+            }
+        }
+    }
+
     private func beginAreaSelection() {
         guard !selector.isActive else { return }
         popup.dismiss()
@@ -163,12 +203,8 @@ public final class AppCoordinator {
         switch mode {
         case .fullscreen:
             return .display(active.id)
-        case .window:
-            // The window picker lands with the rest of Phase 1; falling back to the full display
-            // is a placeholder, not the shipped behaviour.
-            return .display(active.id)
-        case .area:
-            return nil // handled by the selector, never reaches here
+        case .window, .area:
+            return nil // handled by the picker and the selector; never reaches here
         }
     }
 

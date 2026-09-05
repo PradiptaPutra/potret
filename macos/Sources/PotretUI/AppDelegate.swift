@@ -32,12 +32,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             await coordinator.start()
             self?.statusItem?.refresh() // surface any shortcut that failed to register
 
-            // Headless trigger, for verifying the capture path without clicking a menu — there is
-            // no UI automation available without Xcode, so this is how the pipeline gets exercised
-            // from a script. Development builds only.
-            if ProcessInfo.processInfo.environment["POTRET_CAPTURE_ON_LAUNCH"] != nil {
-                Log.ui.info("POTRET_CAPTURE_ON_LAUNCH set — firing a fullscreen capture")
-                coordinator.capture(.fullscreen)
+            // Headless trigger, for exercising a capture path without clicking a menu — there is
+            // no UI automation available without Xcode, so this is the only way to drive the app
+            // from a script. Accepts "fullscreen", "window" or "area".
+            if let requested = ProcessInfo.processInfo.environment["POTRET_CAPTURE_ON_LAUNCH"] {
+                let mode: AppCoordinator.CaptureMode = switch requested.lowercased() {
+                case "window": .window
+                case "area": .area
+                default: .fullscreen
+                }
+                Log.ui.info("POTRET_CAPTURE_ON_LAUNCH=\(requested, privacy: .public)")
+                coordinator.capture(mode)
             }
         }
     }
