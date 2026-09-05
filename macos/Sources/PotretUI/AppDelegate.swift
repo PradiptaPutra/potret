@@ -44,6 +44,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.ui.info("POTRET_CAPTURE_ON_LAUNCH=\(requested, privacy: .public)")
                 coordinator.capture(mode)
             }
+
+            // Same idea for the history panel, which otherwise needs a menu click to open.
+            if ProcessInfo.processInfo.environment["POTRET_SHOW_HISTORY"] != nil {
+                Log.ui.info("POTRET_SHOW_HISTORY set — opening the history panel")
+                coordinator.toggleHistory()
+            }
         }
     }
 

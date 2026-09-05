@@ -36,6 +36,21 @@ public enum PanelPlacement {
         )
     }
 
+    /// Force a frame to sit fully inside a screen's visible area.
+    ///
+    /// Anchoring maths can produce an off-screen origin whenever its inputs are not ready — a
+    /// status-item button reports a zero-origin window frame until the menu bar has laid it out,
+    /// which silently placed the history panel at y = -424 where it was invisible but "shown".
+    /// A panel that is off-screen is always a bug, so this is a floor rather than a nicety.
+    @MainActor
+    public static func clamped(_ frame: NSRect, on screen: NSScreen? = nil) -> NSRect {
+        let area = (screen ?? activeScreen).visibleFrame
+        var result = frame
+        result.origin.x = min(max(frame.minX, area.minX), max(area.minX, area.maxX - frame.width))
+        result.origin.y = min(max(frame.minY, area.minY), max(area.minY, area.maxY - frame.height))
+        return result
+    }
+
     @MainActor
     public static func topTrailing(
         size: CGSize,

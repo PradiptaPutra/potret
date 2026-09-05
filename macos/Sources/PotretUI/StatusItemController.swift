@@ -17,6 +17,8 @@ public final class StatusItemController {
         statusItem.button?.image = TrayIcon.image()
         statusItem.button?.toolTip = "Potret"
         statusItem.menu = buildMenu()
+        // The history panel anchors under the menu-bar item, so it opens where it was asked for.
+        coordinator.statusButton = statusItem.button
     }
 
     /// Rebuilt on demand so the shortcut labels and any failure warning stay current.
@@ -31,6 +33,8 @@ public final class StatusItemController {
         add(menu, "Capture Area", #selector(captureArea))
         add(menu, "Capture Window", #selector(captureWindow))
         add(menu, "Capture Screen", #selector(captureFullscreen))
+        menu.addItem(.separator())
+        add(menu, "Recent Captures", #selector(showHistory))
         menu.addItem(.separator())
 
         // A dead hotkey is otherwise invisible until the user presses it and nothing happens.
@@ -75,5 +79,10 @@ public final class StatusItemController {
     @objc private func captureFullscreen() {
         Log.ui.info("menu: Capture Screen")
         coordinator.capture(.fullscreen)
+    }
+
+    @objc private func showHistory() {
+        Log.ui.info("menu: Recent Captures")
+        coordinator.toggleHistory()
     }
 }

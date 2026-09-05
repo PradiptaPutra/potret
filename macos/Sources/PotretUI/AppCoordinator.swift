@@ -16,6 +16,10 @@ public final class AppCoordinator {
     private let hotKeys = HotKeyCenter()
     private let selector = SelectorCoordinator()
     private let windowPicker = WindowPickerCoordinator()
+    private let historyModel: HistoryModel
+    private let historyPanel: HistoryPanelController
+    /// Set by the app delegate so the history panel can anchor under the menu-bar item.
+    public weak var statusButton: NSStatusBarButton?
 
     /// Guards against a hotkey that repeats or a menu item double-firing. Matches the Tauri app's
     /// 500ms, which existed for the same reason.
@@ -28,7 +32,30 @@ public final class AppCoordinator {
     ) {
         self.engine = engine
         self.configStore = ConfigStore(fileURL: AppIdentity.configFile(bundleID: bundleID))
-        self.historyStore = HistoryStore(directory: AppIdentity.historyDirectory(bundleID: bundleID))
+        let store = HistoryStore(directory: AppIdentity.historyDirectory(bundleID: bundleID))
+        self.historyStore = store
+
+        let model = HistoryModel(store: store)
+        self.historyModel = model
+
+        var actions = HistoryActions()
+        actions.copy = { item in
+            guard let image = NSImage(contentsOf: item.imageURL),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            else { return }
+            ClipboardWriter.write(cgImage)
+        }
+        actions.reveal = { item in
+            NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
+        }
+        actions.delete = { [weak model] item in model?.delete(item) }
+        actions.clearAll = { [weak model] in model?.clearAll() }
+        self.historyPanel = HistoryPanelController(model: model, actions: actions)
+    }
+
+    /// Show or hide the Recent Captures panel.
+    public func toggleHistory() {
+        historyPanel.toggle(relativeTo: statusButton)
     }
 
     // MARK: Lifecycle
@@ -65,6 +92,9 @@ public final class AppCoordinator {
             }
         }
 
+        // The empty state names the user's own shortcut rather than a hardcoded default.
+        historyPanel.setCaptureHint(combos[.captureFullscreen]?.displayString)
+
         // Retention runs at launch as well as after each save: the Tauri app kept every capture
         // forever while showing only the newest 50, so an upgrading user may arrive with a large
         // backlog to trim once.
@@ -85,7 +115,7 @@ public final class AppCoordinator {
         case .captureFullscreen: capture(.fullscreen)
         case .captureWindow: capture(.window)
         case .captureArea: capture(.area)
-        case .recentCaptures: break // history panel lands with the rest of Phase 2
+        case .recentCaptures: toggleHistory()
         }
     }
 
@@ -232,6 +262,8 @@ public final class AppCoordinator {
             guard let self else { return }
             Task { await self.save(captured) }
         }
+
+        if historyPanel.isVisible { historyModel.load() }
 
         Log.ui.info("presenting popup")
         popup.present(
