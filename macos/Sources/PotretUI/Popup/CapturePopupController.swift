@@ -19,6 +19,8 @@ public final class CapturePopupController {
     private var preview: PopupPreview?
     private var actions = CapturePopupActions()
     private var hovering = false
+    /// True while a drag started from the preview is still in flight.
+    private var dragging = false
     private var remaining: Duration = CapturePopupController.lifetime
 
     public init() {}
@@ -31,6 +33,7 @@ public final class CapturePopupController {
     ) {
         self.actions = actions
         self.actions.dismiss = { [weak self] in self?.dismiss() }
+        self.actions.dragBegan = { [weak self] in self?.holdForDrag() }
         preview = PopupPreview(image: image, pixelSize: pixelSize, progress: 1)
         remaining = Self.lifetime
 
@@ -63,6 +66,23 @@ public final class CapturePopupController {
         countdown = nil
         panel?.orderOut(nil)
         preview = nil
+    }
+
+    /// Hold the popup open for a drag, and release once no button is down.
+    ///
+    /// The SwiftUI drag path reports no completion, so the end of the gesture is detected by
+    /// polling the pressed buttons — the same approach the corner stack uses.
+    private func holdForDrag() {
+        dragging = true
+        Task { [weak self] in
+            while self?.dragging == true {
+                try? await Task.sleep(for: .milliseconds(150))
+                if NSEvent.pressedMouseButtons == 0 {
+                    self?.dragging = false
+                    return
+                }
+            }
+        }
     }
 
     // MARK: Internals
@@ -99,7 +119,8 @@ public final class CapturePopupController {
             while let self, !Task.isCancelled {
                 try? await Task.sleep(for: Self.tick)
                 guard !Task.isCancelled else { return }
-                if self.hovering { continue }
+                // Hovering pauses; a drag holds indefinitely until the mouse comes back up.
+                if self.hovering || self.dragging { continue }
 
                 self.remaining -= Self.tick
                 if self.remaining <= .zero {

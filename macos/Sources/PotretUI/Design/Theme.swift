@@ -61,6 +61,16 @@ public enum TypeRamp {
         public static var hint: NSFont {
             NSFont.systemFont(ofSize: 12, weight: .medium)
         }
+
+        /// A menu section label. System sizes, so it tracks the user's menu-bar text size.
+        public static var menuSectionHeader: NSFont {
+            NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        }
+
+        /// A shortcut glyph shown on the right of a menu row.
+        public static var menuShortcut: NSFont {
+            NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        }
     }
 }
 

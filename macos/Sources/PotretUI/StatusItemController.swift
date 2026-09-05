@@ -37,59 +37,116 @@ public final class StatusItemController {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        add(menu, "Capture Area", #selector(captureArea))
-        add(menu, "Capture Window", #selector(captureWindow))
-        add(menu, "Capture Screen", #selector(captureFullscreen))
-        menu.addItem(.separator())
-
-        // While recording, the menu bar is one of the three ways to stop — and the one that is
-        // always reachable even if the HUD is behind something or on another Space.
         if coordinator.isRecording {
-            let stop = NSMenuItem(
-                title: "Stop Recording", action: #selector(stopRecording), keyEquivalent: ""
+            // While recording, that is the only thing the menu should be about.
+            let stop = item(
+                "Stop Recording",
+                symbol: "stop.circle.fill",
+                action: #selector(stopRecording)
             )
-            stop.target = self
+            stop.attributedTitle = NSAttributedString(
+                string: "Stop Recording",
+                attributes: [.foregroundColor: NSColor.systemRed]
+            )
             menu.addItem(stop)
-        } else {
-            add(menu, "Record Area", #selector(recordArea))
-            add(menu, "Record Window", #selector(recordWindow))
-            add(menu, "Record Screen", #selector(recordFullscreen))
-        }
-        menu.addItem(.separator())
-        add(menu, "Open Potret", #selector(showHome))
-        menu.addItem(.separator())
-        add(menu, "Recent Captures", #selector(showHistory))
-        menu.addItem(.separator())
-        add(menu, "Settings…", #selector(showSettings))
-        menu.addItem(.separator())
-
-        // A dead hotkey is otherwise invisible until the user presses it and nothing happens.
-        let failures = coordinator.shortcutFailures
-        if !failures.isEmpty {
-            let names = failures.keys.map(\.label).sorted().joined(separator: ", ")
-            let warning = NSMenuItem(
-                title: "⚠︎ Shortcut unavailable: \(names)",
-                action: nil,
-                keyEquivalent: ""
-            )
-            warning.isEnabled = false
-            menu.addItem(warning)
             menu.addItem(.separator())
         }
 
-        let quit = NSMenuItem(
-            title: "Quit Potret",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
-        menu.addItem(quit)
+        menu.addItem(header("Capture"))
+        menu.addItem(item("Area", symbol: "viewfinder", action: #selector(captureArea),
+                          shortcut: shortcuts[.captureArea]))
+        menu.addItem(item("Window", symbol: "macwindow", action: #selector(captureWindow),
+                          shortcut: shortcuts[.captureWindow]))
+        menu.addItem(item("Screen", symbol: "display", action: #selector(captureFullscreen),
+                          shortcut: shortcuts[.captureFullscreen]))
+
+        if !coordinator.isRecording {
+            menu.addItem(.separator())
+            menu.addItem(header("Record"))
+            menu.addItem(item("Area", symbol: "record.circle", action: #selector(recordArea)))
+            menu.addItem(item("Window", symbol: "macwindow.on.rectangle",
+                              action: #selector(recordWindow)))
+            menu.addItem(item("Screen", symbol: "rectangle.dashed.badge.record",
+                              action: #selector(recordFullscreen)))
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(item("Recent Captures", symbol: "clock.arrow.circlepath",
+                          action: #selector(showHistory), shortcut: shortcuts[.recentCaptures]))
+        menu.addItem(item("Open Potret", symbol: "square.grid.2x2", action: #selector(showHome)))
+        menu.addItem(item("Settings…", symbol: "gearshape", action: #selector(showSettings)))
+
+        // A dead hotkey is otherwise invisible until you press it and nothing happens.
+        let failures = coordinator.shortcutFailures
+        if !failures.isEmpty {
+            menu.addItem(.separator())
+            let names = failures.keys.map(\.label).sorted().joined(separator: ", ")
+            let warning = item("Shortcut unavailable: \(names)",
+                               symbol: "exclamationmark.triangle.fill", action: nil)
+            warning.isEnabled = false
+            menu.addItem(warning)
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(item("Quit Potret", symbol: "power",
+                          action: #selector(NSApplication.terminate(_:)), target: nil))
         return menu
     }
 
-    private func add(_ menu: NSMenu, _ title: String, _ action: Selector) {
+    /// A small caps section label. NSMenu has no section header of its own, so this is a disabled
+    /// item styled to read as one — the same shape System Settings and Finder use.
+    private func header(_ title: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        item.attributedTitle = NSAttributedString(
+            string: title.uppercased(),
+            attributes: [
+                .font: TypeRamp.AppKit.menuSectionHeader,
+                .foregroundColor: NSColor.tertiaryLabelColor,
+            ]
+        )
+        return item
+    }
+
+    /// One row: SF Symbol, title, and the real shortcut on the right.
+    ///
+    /// The shortcut is shown as a plain right-aligned string rather than as a keyEquivalent,
+    /// because these are *global* hotkeys registered with Carbon — attaching them as menu
+    /// equivalents would register a second, conflicting binding that only works while the menu is
+    /// open.
+    private func item(
+        _ title: String,
+        symbol: String,
+        action: Selector?,
+        shortcut: String? = nil,
+        target: AnyObject? = nil
+    ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.target = self
-        menu.addItem(item)
+        item.target = target ?? self
+        item.image = NSImage(
+            systemSymbolName: symbol,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
+
+        if let shortcut {
+            let attributed = NSMutableAttributedString(string: title)
+            attributed.append(
+                NSAttributedString(
+                    string: "   \(shortcut)",
+                    attributes: [
+                        .font: TypeRamp.AppKit.menuShortcut,
+                        .foregroundColor: NSColor.tertiaryLabelColor,
+                    ]
+                )
+            )
+            item.attributedTitle = attributed
+        }
+        return item
+    }
+
+    /// Current shortcut glyphs, refreshed with the menu.
+    private var shortcuts: [ShortcutID: String] {
+        coordinator.shortcutLabels
     }
 
     @objc private func captureArea() {

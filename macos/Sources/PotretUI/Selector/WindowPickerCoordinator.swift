@@ -97,6 +97,11 @@ public final class WindowPickerCoordinator {
     /// Same three independent teardown paths as the area selector — these panels also sit above
     /// the menu bar and the Dock, where getting stuck would leave the Mac unusable.
     private func installResignObserver() {
+        // Ignore resigns for a moment after opening. Choosing "Record Area" from the menu bar
+        // ends NSMenu's tracking loop, which resigns active — so an observer armed immediately
+        // tore the overlay down in the same runloop turn it was created, and the feature looked
+        // dead when invoked from the menu while working fine from a hotkey.
+        let armedAt = Date()
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: nil,
@@ -104,6 +109,8 @@ public final class WindowPickerCoordinator {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.isActive else { return }
+                guard Date().timeIntervalSince(armedAt) > 0.75 else { return }
+                Log.ui.info("overlay dismissed: app resigned active")
                 self.cancel()
             }
         }

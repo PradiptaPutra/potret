@@ -16,6 +16,8 @@ public struct CapturePopupActions {
     public var dismiss: (() -> Void)?
     /// Stages the capture and returns a URL to drag out of the preview.
     public var dragURL: (() -> URL?)?
+    /// Fired when a drag starts, so the auto-dismiss countdown can be held.
+    public var dragBegan: (() -> Void)?
 
     public init() {}
 }
@@ -108,6 +110,10 @@ public struct CapturePopupView: View {
                 // The image is the drag source, so nothing may cover it.
                 .accessibilityLabel("Capture preview. Drag to another app.")
                 .onDrag {
+                    // The popup dismisses itself after five seconds. Without holding that, a drag
+                    // started at second four takes the drag source away mid-gesture and the drop
+                    // silently does nothing — the same hazard the corner stack has.
+                    actions.dragBegan?()
                     guard let url = actions.dragURL?() else { return NSItemProvider() }
                     return HistoryActions.imageProvider(for: url)
                 }

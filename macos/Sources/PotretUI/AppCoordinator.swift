@@ -35,7 +35,8 @@ public final class AppCoordinator {
     private var homeWindow: MainWindowController?
     private var trimWindow: MainWindowController?
     private var trimModel: TrimModel?
-    private var shortcutLabels: [ShortcutID: String] = [:]
+    /// Shortcut glyphs for display, e.g. "⌥⌘3". Read by the menu.
+    public private(set) var shortcutLabels: [ShortcutID: String] = [:]
     private var editorModel: EditorModel?
 
     /// Guards against a hotkey that repeats or a menu item double-firing. Matches the Tauri app's
@@ -223,7 +224,9 @@ public final class AppCoordinator {
     /// works in windows and displays. Recording the browser window follows whatever tab is in
     /// front of it, and area recording covers the case where only part of the page matters.
     public func record(_ mode: CaptureMode) {
+        Log.capture.info("record requested: \(String(describing: mode), privacy: .public)")
         guard !recorder.isRecording else {
+            Log.capture.info("already recording — stopping instead")
             recorder.stop()
             return
         }
@@ -266,14 +269,42 @@ public final class AppCoordinator {
                 }
             }
         case .area:
+            guard !selector.isActive else { return }
+            popup.dismiss()
             selector.begin { [weak self] rect, displayID in
-                guard let self, let rect, let displayID else { return }
+                guard let self else { return }
+                guard let rect, let displayID else {
+                    Log.capture.info("area recording cancelled")
+                    return
+                }
+                Log.capture.info(
+                    "area recording region \(NSStringFromRect(rect), privacy: .public)"
+                )
                 Task {
                     await self.recorder.start(
                         target: .region(rect, on: displayID), settings: self.recordingSettings
                     )
                     self.onRecordingStateChanged?()
                 }
+            }
+        }
+    }
+
+    /// Record a fixed region without the selector — isolates the region pipeline from the
+    /// overlay interaction when diagnosing.
+    public func recordRegionForTesting(_ rect: CGRect) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let displays = try await self.engine.displays()
+                guard let display = displays.first else { return }
+                Log.capture.info("test region record \(NSStringFromRect(rect), privacy: .public)")
+                await self.recorder.start(
+                    target: .region(rect, on: display.id), settings: self.recordingSettings
+                )
+                self.onRecordingStateChanged?()
+            } catch {
+                self.present(error: error)
             }
         }
     }

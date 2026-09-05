@@ -19,6 +19,23 @@ final class AnnotationCanvasView: NSView {
     var onEditText: ((AnnotationElement, CGRect, CGFloat) -> Void)?
 
     private let renderer = AnnotationRenderer()
+    /// The document rendered to a bitmap at view resolution, reused across frames.
+    ///
+    /// Every mouse-moved event redraws this view, and a redraw re-scaled the full-resolution
+    /// capture with high-quality interpolation — a 1920×1200 image resampled sixty times a second.
+    /// That is why dragging a crop felt like it was fighting the trackpad. The base is now
+    /// rendered once and only re-rendered when something that affects it actually changes.
+    private var baseCache: CGImage?
+    private var baseCacheKey: BaseCacheKey?
+
+    private struct BaseCacheKey: Equatable {
+        let elements: [AnnotationElement]
+        let crop: CGRect?
+        let background: Backdrop?
+        let size: CGSize
+        let scale: CGFloat
+    }
+
     private var dragStart: CGPoint?
     private var dragCurrent: CGPoint?
     private var freehandPoints: [CGPoint] = []
@@ -46,7 +63,13 @@ final class AnnotationCanvasView: NSView {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        baseCache = nil
         updateContentsScale()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        baseCache = nil
     }
 
     private func updateContentsScale() {
@@ -120,6 +143,53 @@ final class AnnotationCanvasView: NSView {
             document.elements.append(draft)
         }
 
+        if let cached = cachedBase(for: document, model: model) {
+            context.saveGState()
+            context.interpolationQuality = .none // 1:1 blit; the work was done when it was cached
+            context.draw(cached, in: CGRect(origin: .zero, size: bounds.size))
+            context.restoreGState()
+        } else {
+            renderer.draw(
+                document: document,
+                source: model.source,
+                into: context,
+                transform: transform,
+                targetHeight: bounds.height
+            )
+        }
+
+        drawSelectionChrome(in: context, model: model)
+        drawCropChrome(in: context)
+    }
+
+    /// Render the document to a bitmap at view resolution, reusing the previous one when nothing
+    /// that affects it has changed. Crop chrome and selection handles draw on top afterwards, so
+    /// dragging either of those is a blit rather than a full re-render.
+    private func cachedBase(for document: AnnotationDocument, model: EditorModel) -> CGImage? {
+        let scale = window?.backingScaleFactor ?? 2
+        let key = BaseCacheKey(
+            elements: document.elements,
+            crop: document.cropRect,
+            background: document.background,
+            size: bounds.size,
+            scale: scale
+        )
+        if key == baseCacheKey, let baseCache { return baseCache }
+
+        let pixelWidth = Int(bounds.width * scale)
+        let pixelHeight = Int(bounds.height * scale)
+        guard pixelWidth > 0, pixelHeight > 0 else { return nil }
+        guard let context = CGContext(
+            data: nil,
+            width: pixelWidth,
+            height: pixelHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        context.scaleBy(x: scale, y: scale)
         renderer.draw(
             document: document,
             source: model.source,
@@ -128,8 +198,9 @@ final class AnnotationCanvasView: NSView {
             targetHeight: bounds.height
         )
 
-        drawSelectionChrome(in: context, model: model)
-        drawCropChrome(in: context)
+        baseCache = context.makeImage()
+        baseCacheKey = key
+        return baseCache
     }
 
     private func draftElement() -> AnnotationElement? {

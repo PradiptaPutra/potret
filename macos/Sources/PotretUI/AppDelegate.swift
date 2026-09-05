@@ -56,10 +56,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 coordinator.captureAndEdit()
             }
             // Record for N seconds then stop, so the pipeline can be exercised without a HUD click.
+            // POTRET_RECORD_MODE picks area/window/fullscreen.
             if let seconds = ProcessInfo.processInfo.environment["POTRET_RECORD_SECONDS"],
                let duration = Double(seconds) {
-                Log.ui.info("POTRET_RECORD_SECONDS=\(seconds, privacy: .public)")
-                coordinator.record(.fullscreen)
+                let requested = ProcessInfo.processInfo.environment["POTRET_RECORD_MODE"] ?? "fullscreen"
+                let mode: AppCoordinator.CaptureMode = switch requested.lowercased() {
+                case "area": .area
+                case "window": .window
+                default: .fullscreen
+                }
+                Log.ui.info("POTRET_RECORD_SECONDS=\(seconds, privacy: .public) mode=\(requested, privacy: .public)")
+                if let region = ProcessInfo.processInfo.environment["POTRET_RECORD_REGION"] {
+                    let parts = region.split(separator: ",").compactMap { Double($0) }
+                    if parts.count == 4 {
+                        coordinator.recordRegionForTesting(
+                            CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+                        )
+                    }
+                } else {
+                    coordinator.record(mode)
+                }
                 Task {
                     try? await Task.sleep(for: .seconds(duration))
                     coordinator.stopRecording()

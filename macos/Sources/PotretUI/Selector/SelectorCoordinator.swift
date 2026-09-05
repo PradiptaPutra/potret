@@ -61,6 +61,7 @@ public final class SelectorCoordinator {
             active.view.window?.makeFirstResponder(active.view)
         }
 
+        Log.ui.info("selector shown on \(self.panels.count) screen(s)")
         hideCursor()
         installWatchdog()
         installResignObserver()
@@ -129,6 +130,11 @@ public final class SelectorCoordinator {
     /// Second escape hatch: if anything else takes over, the overlay goes away rather than
     /// covering the screen indefinitely.
     private func installResignObserver() {
+        // Ignore resigns for a moment after opening. Choosing "Record Area" from the menu bar
+        // ends NSMenu's tracking loop, which resigns active — so an observer armed immediately
+        // tore the overlay down in the same runloop turn it was created, and the feature looked
+        // dead when invoked from the menu while working fine from a hotkey.
+        let armedAt = Date()
         resignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: nil,
@@ -136,6 +142,8 @@ public final class SelectorCoordinator {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.isActive else { return }
+                guard Date().timeIntervalSince(armedAt) > 0.75 else { return }
+                Log.ui.info("overlay dismissed: app resigned active")
                 self.cancel()
             }
         }
