@@ -205,6 +205,8 @@ struct CornerHoverView: View {
     @Bindable var model: HistoryModel
     let actions: HistoryActions
     @State private var hovered: String?
+    /// Pointer is over a card's action buttons; a click there must not also open the capture.
+    @State private var overActions = false
 
     static let cardWidth: CGFloat = 190
     static let cardHeight: CGFloat = cardWidth * 10 / 16
@@ -257,6 +259,7 @@ struct CornerHoverView: View {
                     action("trash", "Delete") { actions.delete?(item) }
                 }
                 .padding(Space.xs)
+                .onHover { overActions = $0 }
             }
         }
         .clipShape(Radius.shape(Radius.md))
@@ -283,6 +286,7 @@ struct CornerHoverView: View {
         .onDrag { actions.dragProvider(for: item) }
         .simultaneousGesture(
             TapGesture().onEnded {
+                guard !overActions else { return }
                 Log.ui.info("corner card tapped")
                 actions.annotate?(item)
             }

@@ -85,7 +85,7 @@ public struct HomeView: View {
 
     public var body: some View {
         HStack(spacing: 0) {
-            sidebar
+            sidebarColumn
             Divider()
             content
         }
@@ -118,8 +118,19 @@ public struct HomeView: View {
             }
         }
         .listStyle(.sidebar)
-        .frame(width: 210)
-        .safeAreaInset(edge: .bottom) {
+    }
+
+    /// The sidebar column: list above, footer below, at a fixed width.
+    ///
+    /// The footer used to be a `.safeAreaInset` on the list. Its `Spacer` made the composed view
+    /// flexible, so the enclosing HStack split the window evenly between sidebar and grid — the
+    /// list was pushed right by 110pt, "Settings" sat at the window's far-left edge, and the grid
+    /// collapsed to one column of huge cropped thumbnails. A VStack sized after composition cannot
+    /// be stretched by its contents.
+    private var sidebarColumn: some View {
+        VStack(spacing: 0) {
+            sidebar
+            Divider()
             HStack {
                 Button {
                     actions.openSettings?()
@@ -127,7 +138,7 @@ public struct HomeView: View {
                     Label("Settings", systemImage: "gearshape")
                 }
                 .buttonStyle(.link)
-                Spacer()
+                Spacer(minLength: 0)
                 Text(Self.version)
                     .font(TypeRamp.caption)
                     .foregroundStyle(.tertiary)
@@ -135,6 +146,8 @@ public struct HomeView: View {
             .padding(.horizontal, Space.m)
             .padding(.vertical, Space.s)
         }
+        .frame(width: 210)
+        .background(VisualEffect(.sidebar))
     }
 
     /// An action row. Not selectable, unlike the library rows above it — clicking runs it.
@@ -243,6 +256,10 @@ private struct HomeCard: View {
     let actions: HistoryActions
     @State private var hovering = false
     @State private var confirmingDelete = false
+    /// The pointer is over the action buttons. The card's open-on-click is a simultaneous
+    /// gesture (it has to be — see below), so without this a click on Delete also opened the
+    /// capture: the tap and the button both fired.
+    @State private var overActions = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
@@ -260,7 +277,12 @@ private struct HomeCard: View {
         // See CornerHoverController: .onDrag consumes the mouse-down, so the click that opens a
         // capture has to be a simultaneous gesture rather than .onTapGesture.
         .onDrag { actions.dragProvider(for: item) }
-        .simultaneousGesture(TapGesture().onEnded { actions.annotate?(item) })
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                guard !overActions else { return }
+                actions.annotate?(item)
+            }
+        )
         .onHover { hovering = $0 }
         .confirmationDialog("Delete this capture?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) { actions.delete?(item) }
@@ -270,18 +292,21 @@ private struct HomeCard: View {
 
     private var thumbnail: some View {
         ZStack(alignment: .topTrailing) {
-            Group {
-                if let image = model.thumbnail(for: item) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Rectangle().fill(Color.primary.opacity(0.06))
+            // The CONTAINER is 16:10 and the image fills it. Putting the aspect ratio on the image
+            // instead gives it unbounded height, and .clipped() on the frame does not stop the
+            // layout from overflowing — thumbnails spilled over neighbouring cards.
+            Color.clear
+                .aspectRatio(16 / 10, contentMode: .fit)
+                .overlay {
+                    if let image = model.thumbnail(for: item) {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Rectangle().fill(Color.primary.opacity(0.06))
+                    }
                 }
-            }
-            .frame(height: 124)
-            .frame(maxWidth: .infinity)
-            .clipped()
+                .clipped()
 
             if hovering {
                 HStack(spacing: Space.xs) {
@@ -294,6 +319,7 @@ private struct HomeCard: View {
                     button("trash", "Delete") { confirmingDelete = true }
                 }
                 .padding(Space.xs)
+                .onHover { overActions = $0 }
             }
         }
         .overlay(alignment: .bottomLeading) {

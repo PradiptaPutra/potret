@@ -190,6 +190,8 @@ private struct HistoryRow: View {
     let actions: HistoryActions
     @State private var hovering = false
     @State private var confirmingDelete = false
+    /// Pointer is over the row's buttons; a click there must not also open the capture.
+    @State private var overActions = false
 
     var body: some View {
         HStack(spacing: Space.m) {
@@ -203,7 +205,7 @@ private struct HistoryRow: View {
             }
             Spacer(minLength: 0)
             if hovering {
-                rowActions
+                rowActions.onHover { overActions = $0 }
             }
         }
         .padding(.horizontal, Space.m)
@@ -214,7 +216,12 @@ private struct HistoryRow: View {
         // See CornerHoverController: .onDrag consumes the mouse-down, so the click has to be a
         // simultaneous gesture rather than .onTapGesture.
         .onDrag { actions.dragProvider(for: item) }
-        .simultaneousGesture(TapGesture().onEnded { actions.annotate?(item) })
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                guard !overActions else { return }
+                actions.annotate?(item)
+            }
+        )
         .confirmationDialog("Delete this capture?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) { actions.delete?(item) }
             Button("Cancel", role: .cancel) {}

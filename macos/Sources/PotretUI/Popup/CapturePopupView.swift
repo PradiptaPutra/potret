@@ -107,16 +107,20 @@ public struct CapturePopupView: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: Self.width, height: Self.imageHeight)
                 .clipped()
-                // The image is the drag source, so nothing may cover it.
                 .accessibilityLabel("Capture preview. Drag to another app.")
-                .onDrag {
-                    // The popup dismisses itself after five seconds. Without holding that, a drag
-                    // started at second four takes the drag source away mid-gesture and the drop
-                    // silently does nothing — the same hazard the corner stack has.
-                    actions.dragBegan?()
-                    guard let url = actions.dragURL?() else { return NSItemProvider() }
-                    return HistoryActions.imageProvider(for: url)
-                }
+                // An AppKit drag source rather than .onDrag. This view re-evaluates twenty times
+                // a second for the countdown, and SwiftUI's drag tracking was reset on every one
+                // of them before the gesture could cross its threshold — so the preview never
+                // dragged at all. See FileDragSource.
+                .overlay(
+                    FileDragSource(
+                        provideURL: { actions.dragURL?() },
+                        dragImage: preview.image,
+                        // Hold the countdown: a drag started at second four must not have its
+                        // source dismissed mid-gesture.
+                        onBegan: { actions.dragBegan?() }
+                    )
+                )
 
             Divider()
 
