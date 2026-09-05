@@ -306,15 +306,6 @@ private struct HomeCard: View {
             }
         }
         .contentShape(Rectangle())
-        // See CornerHoverController: .onDrag consumes the mouse-down, so the click that opens a
-        // capture has to be a simultaneous gesture rather than .onTapGesture.
-        .onDrag { actions.dragProvider(for: item) }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                guard !overActions else { return }
-                actions.annotate?(item)
-            }
-        )
         .onHover { hovering = $0 }
         .confirmationDialog("Delete this capture?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) { actions.delete?(item) }
@@ -339,6 +330,13 @@ private struct HomeCard: View {
                     }
                 }
                 .clipped()
+                // Drag out or click to open. The buttons below sit above this in the ZStack and
+                // keep their own clicks.
+                .overlay(
+                    actions.dragSource(for: item, image: model.thumbnail(for: item)) {
+                        actions.annotate?(item)
+                    }
+                )
 
             if hovering {
                 HStack(spacing: Space.xs) {

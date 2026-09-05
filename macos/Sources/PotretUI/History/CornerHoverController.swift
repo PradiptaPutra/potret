@@ -55,6 +55,12 @@ public final class CornerHoverController {
         // panel kept its old height with the cards re-laid out inside it — the "broken after
         // delete" state. And the shared model reloads without a limit, so the view must cap what
         // it shows itself.
+        actions.dragEnded = { [weak self] accepted in
+            guard let self else { return }
+            self.dragging = false
+            // Dropped somewhere: the card went where it was going, so the stack can go.
+            if accepted { self.hide() } else { self.scheduleHide() }
+        }
         let delete = actions.delete
         actions.delete = { [weak self] item in
             delete?(item)
@@ -272,6 +278,14 @@ struct CornerHoverView: View {
                 }
             }
             .frame(width: Self.cardWidth, height: Self.cardHeight)
+            // Drag out or click to open, through the AppKit drag source. The action buttons come
+            // later in this ZStack, so they sit above it and keep their own clicks.
+            .overlay(
+                actions.dragSource(for: item, image: model.thumbnail(for: item)) {
+                    Log.ui.info("corner card clicked")
+                    actions.annotate?(item)
+                }
+            )
 
             if isHovered {
                 HStack(spacing: Space.xs) {
@@ -301,21 +315,6 @@ struct CornerHoverView: View {
         .offset(y: isHovered ? -2 : 0)
         .animation(Motion.quick, value: isHovered)
         .onHover { hovered = $0 ? item.id : nil }
-        // Dragging carries the file into any app that takes one; clicking opens the editor.
-        //
-        // The tap is a `simultaneousGesture`, not `.onTapGesture`. `.onDrag` installs a drag
-        // source that consumes the mouse-down, so a plain tap modifier on the same view never
-        // fires — which is why clicking a card did nothing. A simultaneous gesture is recognised
-        // alongside the drag, and TapGesture still requires the pointer to stay put, so dragging
-        // does not also count as a click.
-        .onDrag { actions.dragProvider(for: item) }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                guard !overActions else { return }
-                Log.ui.info("corner card tapped")
-                actions.annotate?(item)
-            }
-        )
         .help("\(item.relativeTime) · \(item.dimensions) — click to annotate, or drag out")
     }
 

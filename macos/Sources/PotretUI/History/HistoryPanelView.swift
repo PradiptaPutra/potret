@@ -17,6 +17,21 @@ public struct HistoryActions {
     public var dragURL: ((HistoryItem) -> URL?)?
     /// Fired the moment a drag starts, so a surface that auto-hides can hold itself open.
     public var dragBegan: (() -> Void)?
+    /// Fired when the drag ends; `true` if a destination accepted it.
+    public var dragEnded: ((Bool) -> Void)?
+
+    /// The AppKit drag source for a capture. One mechanism for every surface: SwiftUI's .onDrag
+    /// failed on the popup because view re-evaluation reset its gesture tracking, and the corner
+    /// cards re-evaluate on every hover change — the same failure for the same reason.
+    func dragSource(for item: HistoryItem, image: NSImage?, onClick: @escaping () -> Void) -> FileDragSource {
+        FileDragSource(
+            provideURL: { [self] in self.dragURL?(item) },
+            dragImage: image,
+            onBegan: { [self] in self.dragBegan?() },
+            onClick: onClick,
+            onEnded: { [self] accepted in self.dragEnded?(accepted) }
+        )
+    }
 
     public init() {}
 
@@ -195,15 +210,25 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(spacing: Space.m) {
-            thumbnail
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.relativeTime)
-                    .font(TypeRamp.body)
-                Text("\(item.dimensions) · \(item.formattedSize)")
-                    .font(TypeRamp.mono)
-                    .foregroundStyle(.secondary)
+            HStack(spacing: Space.m) {
+                thumbnail
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.relativeTime)
+                        .font(TypeRamp.body)
+                    Text("\(item.dimensions) · \(item.formattedSize)")
+                        .font(TypeRamp.mono)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .contentShape(Rectangle())
+            // Drag out or click to open, through the AppKit drag source; the buttons are outside
+            // this and keep their own clicks.
+            .overlay(
+                actions.dragSource(for: item, image: model.thumbnail(for: item)) {
+                    actions.annotate?(item)
+                }
+            )
             if hovering {
                 rowActions.onHover { overActions = $0 }
             }
@@ -213,15 +238,6 @@ private struct HistoryRow: View {
         .contentShape(Rectangle())
         .background(hovering ? Color.primary.opacity(0.06) : .clear)
         .onHover { hovering = $0 }
-        // See CornerHoverController: .onDrag consumes the mouse-down, so the click has to be a
-        // simultaneous gesture rather than .onTapGesture.
-        .onDrag { actions.dragProvider(for: item) }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                guard !overActions else { return }
-                actions.annotate?(item)
-            }
-        )
         .confirmationDialog("Delete this capture?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) { actions.delete?(item) }
             Button("Cancel", role: .cancel) {}
