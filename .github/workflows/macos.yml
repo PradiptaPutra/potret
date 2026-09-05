@@ -1,0 +1,80 @@
+name: macOS
+
+# The first CI this repository has ever had. Until now the only quality gate was
+# CONTRIBUTING.md asking contributors to check that both halves build.
+#
+# Deliberately not run: anything that captures. ScreenCaptureKit needs a Screen Recording grant
+# and a real display, and a CI runner has neither — a capture test here would either be skipped
+# silently or fail for reasons unrelated to the change. Capture is verified by hand against
+# macos/TESTING.md.
+
+on:
+  push:
+    branches: [main, swift-rewrite]
+    paths: ['macos/**', '.github/workflows/macos.yml']
+  pull_request:
+    paths: ['macos/**', '.github/workflows/macos.yml']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # macos-14 matches the deployment target, so an accidental use of a newer API is caught here
+    # rather than by a user on Sonoma.
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcrun --show-sdk-version
+
+      - name: Cache build
+        uses: actions/cache@v4
+        with:
+          path: macos/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('macos/Package.swift') }}-${{ github.sha }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ hashFiles('macos/Package.swift') }}-
+            spm-${{ runner.os }}-
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        # scripts/test.sh supplies the three flags swift-testing needs on a toolchain without
+        # Xcode; see macos/TESTING.md for why each is necessary.
+        run: ./scripts/test.sh
+
+      - name: Design lint
+        run: ./scripts/lint-design.sh
+
+      - name: Build the app bundle
+        # No signing certificate on a runner, so build-app.sh falls back to ad-hoc and says so.
+        # The point here is that bundling, plist templating and the universal lipo all still work.
+        run: ./scripts/build-app.sh
+
+      - name: Verify the bundle
+        run: |
+          set -euo pipefail
+          APP=build/Potret.app
+          lipo -info "$APP/Contents/MacOS/Potret" | tee /dev/stderr | grep -q 'x86_64 arm64'
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --verify --strict "$APP"
+          # LSUIElement is load-bearing: without it the app takes a Dock tile and the
+          # activation-policy handling in AppDelegate is wrong.
+          plutil -extract LSUIElement raw "$APP/Contents/Info.plist" | grep -q true
+
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Potret-app
+          path: macos/build/Potret.app
+          retention-days: 7

@@ -95,7 +95,7 @@ public final class SettingsModel {
             savePath = config.savePath
             shortcuts = LegacyShortcutMigration.migrate(config).combos
             permissionGranted = CapturePermission.isGranted
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            launchAtLogin = LoginItem.isEnabled
             historyBytes = (try? historyStore.totalBytes()) ?? 0
         }
     }
@@ -166,7 +166,7 @@ public final class SettingsModel {
             }
         } catch {
             Log.ui.error("login item change failed: \(error.localizedDescription, privacy: .public)")
-            launchAtLogin = SMAppService.mainApp.status == .enabled
+            launchAtLogin = LoginItem.isEnabled
         }
     }
 

@@ -259,6 +259,12 @@ public final class AppCoordinator {
         // The empty state names the user's own shortcut rather than a hardcoded default.
         historyPanel.setCaptureHint(combos[.captureFullscreen]?.displayString)
 
+        // One-time cleanup of the LaunchAgent the Tauri autostart plugin wrote; it points at the
+        // old bundle and is invisible in System Settings.
+        if LoginItem.migrateLegacyLaunchAgent() {
+            Log.ui.info("removed the legacy LaunchAgent and re-registered via SMAppService")
+        }
+
         cornerHover.isEnabled = config.cornerPopupEnabled
         cornerHover.install()
 
