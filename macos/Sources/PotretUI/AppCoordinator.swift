@@ -21,6 +21,8 @@ public final class AppCoordinator {
     /// Set by the app delegate so the history panel can anchor under the menu-bar item.
     public weak var statusButton: NSStatusBarButton?
     private let cornerHover: CornerHoverController
+    /// Latest settings, for paths that must answer synchronously (a drag cannot await).
+    private var cachedConfig: AppConfig = .default
     private var settingsModel: SettingsModel?
     private var settingsWindow: MainWindowController?
     private var editorWindow: MainWindowController?
@@ -54,11 +56,39 @@ public final class AppCoordinator {
             NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
         }
         actions.delete = { [weak model] item in model?.delete(item) }
-        // Assigned after init, because it needs self.
-        actions.annotate = nil
         actions.clearAll = { [weak model] in model?.clearAll() }
         self.historyPanel = HistoryPanelController(model: model, actions: actions)
         self.cornerHover = CornerHoverController(model: model, actions: actions)
+
+        // annotate and dragURL need `self`, so they are attached once initialisation is complete.
+        var full = actions
+        full.annotate = { [weak self] item in self?.openEditor(for: item) }
+        full.dragURL = { [weak self] item in self?.stageForDrag(item) }
+        historyPanel.updateActions(full)
+        cornerHover.updateActions(full)
+    }
+
+    /// Open a stored capture in the editor.
+    private func openEditor(for item: HistoryItem) {
+        guard
+            let image = NSImage(contentsOf: item.imageURL),
+            let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        else {
+            Log.ui.error("could not open capture for editing")
+            return
+        }
+        historyPanel.hide()
+        openEditor(source: cgImage, pixelSize: item.pixelSize)
+    }
+
+    /// Copy a capture under its templated name so the drag carries a readable filename.
+    private func stageForDrag(_ item: HistoryItem) -> URL? {
+        let template = FilenameTemplate(cachedConfig.filenameTemplate)
+        let name = DragStaging.name(
+            for: template,
+            ext: item.imageURL.pathExtension.isEmpty ? "png" : item.imageURL.pathExtension
+        )
+        return DragStaging.stage(source: item.imageURL, name: name)
     }
 
     /// Capture the screen and open the editor on it directly — verification path.
@@ -168,6 +198,7 @@ public final class AppCoordinator {
         await configStore.importIfEmpty(from: AppIdentity.configFile())
 
         let config = await configStore.current
+        cachedConfig = config
         let (combos, failed) = LegacyShortcutMigration.migrate(config)
         if !failed.isEmpty {
             // Shortcuts the old string format could not express. They have been replaced with
@@ -345,6 +376,8 @@ public final class AppCoordinator {
 
     /// Persist, then show the popup.
     private func finish(_ captured: CapturedImage) async throws {
+        cachedConfig = await configStore.current
+
         // History is always PNG regardless of the export format, so an annotated re-edit never
         // compounds JPEG artefacts.
         let png = try ImageEncoder.encode(captured.cgImage, format: .png, quality: 100)
@@ -385,6 +418,7 @@ public final class AppCoordinator {
 
     private func save(_ captured: CapturedImage) async {
         let config = await configStore.current
+        cachedConfig = config
         do {
             let data = try ImageEncoder.encode(
                 captured.cgImage,

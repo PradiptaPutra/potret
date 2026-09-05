@@ -32,9 +32,42 @@ public final class CornerHoverController {
         }
     }
 
+    /// True while a drag started from a card is still in flight.
+    private var dragging = false
+
     public init(model: HistoryModel, actions: HistoryActions) {
         self.model = model
         self.actions = actions
+    }
+
+    /// Replace the action set. Actions that need the coordinator itself are attached after
+    /// initialisation, so this arrives once rather than being threaded through init.
+    public func updateActions(_ actions: HistoryActions) {
+        var actions = actions
+        // Hold the stack open for the duration of a drag, then resume normal hide behaviour once
+        // the pointer comes back or the session ends.
+        actions.dragBegan = { [weak self] in
+            guard let self else { return }
+            self.dragging = true
+            self.closeTask?.cancel()
+            self.dragEndWatchdog()
+        }
+        self.actions = actions
+    }
+
+    /// A drag ends outside our control — there is no completion callback on the SwiftUI path — so
+    /// the hold is released once no mouse button is down any more.
+    private func dragEndWatchdog() {
+        Task { [weak self] in
+            while self?.dragging == true {
+                try? await Task.sleep(for: .milliseconds(150))
+                if NSEvent.pressedMouseButtons == 0 {
+                    self?.dragging = false
+                    self?.scheduleHide()
+                    return
+                }
+            }
+        }
     }
 
     public func install() {
@@ -80,6 +113,8 @@ public final class CornerHoverController {
     }
 
     private func scheduleHide() {
+        // Never pull the panel out from under an in-flight drag.
+        guard !dragging else { return }
         dwellTask?.cancel()
         closeTask?.cancel()
         closeTask = Task { [weak self] in
@@ -234,7 +269,11 @@ struct CornerHoverView: View {
         .offset(y: isHovered ? -2 : 0)
         .animation(Motion.quick, value: isHovered)
         .onHover { hovered = $0 ? item.id : nil }
-        .help(item.relativeTime + " · " + item.dimensions)
+        // Click opens the editor; dragging carries the file into any app that takes one —
+        // Finder, Slack, a chat composer, a mail draft.
+        .onTapGesture { actions.annotate?(item) }
+        .onDrag { actions.dragProvider(for: item) }
+        .help("\(item.relativeTime) · \(item.dimensions) — click to annotate, or drag out")
     }
 
     private func action(

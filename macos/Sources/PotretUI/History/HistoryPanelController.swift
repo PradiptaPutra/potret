@@ -19,6 +19,12 @@ public final class HistoryPanelController {
         self.actions = actions
     }
 
+    /// Replace the action set. Actions that need the coordinator itself are attached after
+    /// initialisation, so this arrives once rather than being threaded through init.
+    public func updateActions(_ actions: HistoryActions) {
+        self.actions = actions
+    }
+
     public func setCaptureHint(_ hint: String?) {
         captureHint = hint
     }

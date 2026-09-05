@@ -10,8 +10,24 @@ public struct HistoryActions {
     public var delete: ((HistoryItem) -> Void)?
     public var annotate: ((HistoryItem) -> Void)?
     public var clearAll: (() -> Void)?
+    /// Stages the capture under its templated name and returns the URL to drag. Nil means this
+    /// surface does not support dragging.
+    public var dragURL: ((HistoryItem) -> URL?)?
+    /// Fired the moment a drag starts, so a surface that auto-hides can hold itself open.
+    public var dragBegan: (() -> Void)?
 
     public init() {}
+
+    /// A drag payload for `onDrag`, or an empty provider when staging failed — returning nil is
+    /// not an option there, and an empty provider simply refuses the drop.
+    func dragProvider(for item: HistoryItem) -> NSItemProvider {
+        // Called at drag start. The corner stack auto-hides on mouse-exit, and the pointer leaves
+        // it immediately once a drag begins — without this the panel would tear itself down
+        // underneath the drag it just started.
+        dragBegan?()
+        guard let url = dragURL?(item) else { return NSItemProvider() }
+        return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+    }
 }
 
 /// Recent captures, shown from the menu bar.
@@ -155,6 +171,8 @@ private struct HistoryRow: View {
         .contentShape(Rectangle())
         .background(hovering ? Color.primary.opacity(0.06) : .clear)
         .onHover { hovering = $0 }
+        .onTapGesture { actions.annotate?(item) }
+        .onDrag { actions.dragProvider(for: item) }
         .confirmationDialog("Delete this capture?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) { actions.delete?(item) }
             Button("Cancel", role: .cancel) {}
