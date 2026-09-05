@@ -5,7 +5,7 @@ import SwiftUI
 /// Hosts the canvas so SwiftUI can own the chrome around it.
 struct CanvasRepresentable: NSViewRepresentable {
     let model: EditorModel
-    let onEditText: (AnnotationElement) -> Void
+    let onEditText: (AnnotationElement, CGRect, CGFloat) -> Void
 
     func makeNSView(context: Context) -> AnnotationCanvasView {
         let view = AnnotationCanvasView()
@@ -16,16 +16,27 @@ struct CanvasRepresentable: NSViewRepresentable {
 
     func updateNSView(_ view: AnnotationCanvasView, context: Context) {
         view.model = model
-        view.needsDisplay = true
+        // Cursor rects are cached until invalidated, so the pointer would keep showing the
+        // previous tool's cursor after switching.
+        view.toolDidChange()
     }
+}
+
+/// A text element being typed, positioned over the canvas exactly where it will render.
+struct TextEditingSession: Equatable {
+    let element: AnnotationElement
+    /// View-space rect and font size, so the field matches the rendered result.
+    let rect: CGRect
+    let fontSize: CGFloat
 }
 
 /// The annotation editor.
 public struct EditorView: View {
     @Bindable var model: EditorModel
-    @State private var editingElement: AnnotationElement?
+    @State private var editing: TextEditingSession?
     @State private var draftText = ""
     @State private var showingInspector = false
+    @FocusState private var textFocused: Bool
 
     public init(model: EditorModel) {
         self.model = model
@@ -36,14 +47,19 @@ public struct EditorView: View {
             toolbar
             Divider()
             HStack(spacing: 0) {
-                ZStack {
+                ZStack(alignment: .topLeading) {
                     Color(nsColor: .underPageBackgroundColor)
-                    CanvasRepresentable(model: model) { element in
-                        editingElement = element
-                        draftText = ""
+                    CanvasRepresentable(model: model) { element, rect, fontSize in
+                        if case .text(let content) = element.kind {
+                            draftText = content.string
+                        }
+                        editing = TextEditingSession(
+                            element: element, rect: rect, fontSize: fontSize
+                        )
+                        textFocused = true
                     }
-                    if let editingElement {
-                        textEditor(for: editingElement)
+                    if let editing {
+                        liveTextField(editing)
                     }
                 }
                 if showingInspector {
@@ -138,39 +154,59 @@ public struct EditorView: View {
 
     // MARK: Text
 
-    /// Text is edited in a real field positioned by the same transform that renders it, so what is
-    /// typed is where it lands. The Tauri editor placed a 12px input in CSS pixels and drew 30px
-    /// text in canvas pixels.
-    private func textEditor(for element: AnnotationElement) -> some View {
-        VStack {
-            TextField("Type, then press Return", text: $draftText)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 260)
-                .onSubmit { commitText(for: element) }
-                .onExitCommand { cancelText(for: element) }
-            Text("Return to place · Esc to cancel")
-                .font(TypeRamp.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(Space.m)
-        .potretSurface(.popover, radius: Radius.md)
+    /// Type directly on the canvas, at the position and size the text will actually render.
+    ///
+    /// Not a dialog floating in the middle of the window. The field sits exactly where the glyphs
+    /// will land, in the ink colour, at the rendered point size — so the text is composed in
+    /// place rather than typed somewhere else and dropped in afterwards. The rect and size come
+    /// from the same DocumentTransform the renderer uses.
+    private func liveTextField(_ session: TextEditingSession) -> some View {
+        TextField("", text: $draftText)
+            .textFieldStyle(.plain)
+            .font(TypeRamp.ink(size: session.fontSize))
+            .foregroundStyle(Color(cgColor: session.element.style.color.cgColor))
+            .focused($textFocused)
+            .frame(width: session.rect.width, height: session.rect.height, alignment: .leading)
+            .background(
+                // Just enough tint to find the caret against a busy screenshot, without hiding
+                // what is underneath.
+                Radius.shape(Radius.sm)
+                    .fill(Color.accentColor.opacity(0.12))
+                    .overlay(
+                        Radius.shape(Radius.sm)
+                            .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 1)
+                    )
+            )
+            .offset(x: session.rect.minX, y: session.rect.minY)
+            .onSubmit { commitText(session) }
+            .onExitCommand { cancelText(session) }
+            .onChange(of: draftText) { _, text in
+                // Live: the document carries what has been typed so far, so the canvas behind the
+                // field is already showing the real thing.
+                guard case .text(var content) = session.element.kind else { return }
+                content.string = text
+                var updated = session.element
+                updated.kind = .text(content)
+                model.updateLive(updated)
+            }
     }
 
-    private func commitText(for element: AnnotationElement) {
-        defer { editingElement = nil }
-        guard case .text(var content) = element.kind else { return }
+    private func commitText(_ session: TextEditingSession) {
+        defer { editing = nil }
+        guard case .text(var content) = session.element.kind else { return }
         guard !draftText.trimmingCharacters(in: .whitespaces).isEmpty else {
-            model.apply(.remove(element), name: "Text")
+            model.apply(.remove(session.element), name: "Text")
             return
         }
         content.string = draftText
-        var updated = element
+        var updated = session.element
         updated.kind = .text(content)
-        model.replace(element, with: updated)
+        // One undoable edit for the finished string, not one per keystroke.
+        model.replace(session.element, with: updated)
     }
 
-    private func cancelText(for element: AnnotationElement) {
-        model.apply(.remove(element), name: "Text")
-        editingElement = nil
+    private func cancelText(_ session: TextEditingSession) {
+        model.apply(.remove(session.element), name: "Text")
+        editing = nil
     }
 }

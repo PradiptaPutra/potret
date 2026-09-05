@@ -4,11 +4,14 @@ import Foundation
 /// One entry in the capture history.
 public struct HistoryItem: Sendable, Equatable, Identifiable {
     public let id: String
+    /// The capture itself: a PNG for a still, an MP4 for a recording.
     public let imageURL: URL
     public let thumbnailURL: URL
     public let timestamp: Date
     public let pixelSize: CGSize
     public let fileSize: Int
+    /// Present only for recordings, which is also how the two are told apart.
+    public let duration: TimeInterval?
 
     public init(
         id: String,
@@ -16,7 +19,8 @@ public struct HistoryItem: Sendable, Equatable, Identifiable {
         thumbnailURL: URL,
         timestamp: Date,
         pixelSize: CGSize,
-        fileSize: Int
+        fileSize: Int,
+        duration: TimeInterval? = nil
     ) {
         self.id = id
         self.imageURL = imageURL
@@ -24,7 +28,10 @@ public struct HistoryItem: Sendable, Equatable, Identifiable {
         self.timestamp = timestamp
         self.pixelSize = pixelSize
         self.fileSize = fileSize
+        self.duration = duration
     }
+
+    public var isRecording: Bool { duration != nil }
 }
 
 /// On-disk metadata. Field names match the Tauri app's sidecar JSON exactly, so an existing
@@ -36,6 +43,9 @@ struct HistoryMetadata: Codable {
     let width: Int
     let height: Int
     let fileSize: Int
+    /// Recordings only. Absent in every file the Tauri app wrote, hence optional — its presence
+    /// is what marks an entry as video.
+    let duration: TimeInterval?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -43,6 +53,7 @@ struct HistoryMetadata: Codable {
         case width
         case height
         case fileSize = "file_size"
+        case duration
     }
 }
 
@@ -112,6 +123,7 @@ public struct HistoryStore: Sendable {
     }
 
     private func imageURL(_ id: String) -> URL { directory.appending(path: "\(id).png") }
+    private func videoURL(_ id: String) -> URL { directory.appending(path: "\(id).mp4") }
     private func metadataURL(_ id: String) -> URL { directory.appending(path: "\(id).json") }
     private func thumbnailURL(_ id: String) -> URL { directory.appending(path: "\(id).thumb.png") }
 
@@ -139,7 +151,8 @@ public struct HistoryStore: Sendable {
             timestamp: Int(now.timeIntervalSince1970),
             width: Int(pixelSize.width),
             height: Int(pixelSize.height),
-            fileSize: imageData.count
+            fileSize: imageData.count,
+            duration: nil
         )
         try JSONEncoder().encode(metadata).write(to: metadataURL(id), options: .atomic)
 
@@ -150,6 +163,48 @@ public struct HistoryStore: Sendable {
             timestamp: now,
             pixelSize: pixelSize,
             fileSize: imageData.count
+        )
+    }
+
+    /// Store a finished recording. The video is moved rather than copied — it is already written
+    /// to a temp file, and copying a large MP4 twice is pure cost.
+    @discardableResult
+    public func saveRecording(
+        videoURL source: URL,
+        thumbnailData: Data,
+        pixelSize: CGSize,
+        duration: TimeInterval,
+        now: Date = Date()
+    ) throws -> HistoryItem {
+        try createDirectoryIfNeeded()
+        let id = UUID().uuidString
+        let destination = videoURL(id)
+
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: source, to: destination)
+        try thumbnailData.write(to: thumbnailURL(id), options: .atomic)
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path)
+        let fileSize = (attributes?[.size] as? Int) ?? 0
+
+        let metadata = HistoryMetadata(
+            id: id,
+            timestamp: Int(now.timeIntervalSince1970),
+            width: Int(pixelSize.width),
+            height: Int(pixelSize.height),
+            fileSize: fileSize,
+            duration: duration
+        )
+        try JSONEncoder().encode(metadata).write(to: metadataURL(id), options: .atomic)
+
+        return HistoryItem(
+            id: id,
+            imageURL: destination,
+            thumbnailURL: thumbnailURL(id),
+            timestamp: now,
+            pixelSize: pixelSize,
+            fileSize: fileSize,
+            duration: duration
         )
     }
 
@@ -164,18 +219,22 @@ public struct HistoryStore: Sendable {
             let url = directory.appending(path: name)
             guard
                 let data = try? Data(contentsOf: url),
-                let metadata = try? JSONDecoder().decode(HistoryMetadata.self, from: data),
-                FileManager.default.fileExists(atPath: imageURL(metadata.id).path)
+                let metadata = try? JSONDecoder().decode(HistoryMetadata.self, from: data)
             else { continue }
+
+            // A recording's media is the MP4; a still's is the PNG.
+            let media = metadata.duration == nil ? imageURL(metadata.id) : videoURL(metadata.id)
+            guard FileManager.default.fileExists(atPath: media.path) else { continue }
 
             items.append(
                 HistoryItem(
                     id: metadata.id,
-                    imageURL: imageURL(metadata.id),
+                    imageURL: media,
                     thumbnailURL: thumbnailURL(metadata.id),
                     timestamp: Date(timeIntervalSince1970: TimeInterval(metadata.timestamp)),
                     pixelSize: CGSize(width: metadata.width, height: metadata.height),
-                    fileSize: metadata.fileSize
+                    fileSize: metadata.fileSize,
+                    duration: metadata.duration
                 )
             )
         }
@@ -187,7 +246,7 @@ public struct HistoryStore: Sendable {
 
     public func delete(id: String) throws {
         guard Self.isValidID(id) else { return }
-        for url in [imageURL(id), metadataURL(id), thumbnailURL(id)] {
+        for url in [imageURL(id), videoURL(id), metadataURL(id), thumbnailURL(id)] {
             try? FileManager.default.removeItem(at: url)
         }
     }

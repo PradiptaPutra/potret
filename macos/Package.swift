@@ -19,9 +19,13 @@ let package = Package(
         .target(name: "PotretCore"),
         .target(name: "PotretCapture", dependencies: ["PotretCore"]),
         .target(name: "PotretRender", dependencies: ["PotretCore"]),
+        // Screen recording: SCStream feeding AVAssetWriter, plus trimming and GIF export.
+        // Separate from PotretCapture because it pulls in AVFoundation and has a session
+        // lifecycle, where capture is a single async call.
+        .target(name: "PotretRecord", dependencies: ["PotretCore", "PotretCapture"]),
         .target(
             name: "PotretUI",
-            dependencies: ["PotretCore", "PotretCapture", "PotretRender"]
+            dependencies: ["PotretCore", "PotretCapture", "PotretRender", "PotretRecord"]
         ),
         .executableTarget(name: "Potret", dependencies: ["PotretUI"]),
         // Renders views offscreen to PNG. Stands in for the SwiftUI previews we don't get
@@ -33,5 +37,6 @@ let package = Package(
             resources: [.copy("Fixtures")]
         ),
         .testTarget(name: "PotretRenderTests", dependencies: ["PotretRender"]),
+        .testTarget(name: "PotretRecordTests", dependencies: ["PotretRecord"]),
     ]
 )

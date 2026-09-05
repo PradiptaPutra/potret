@@ -1,6 +1,7 @@
 import AppKit
 import PotretCore
 import SwiftUI
+import PotretRecord
 import UniformTypeIdentifiers
 
 /// What a history row can do. Optional, so actions that belong to later phases simply do not
@@ -229,6 +230,17 @@ private struct HistoryRow: View {
             }
         }
         .frame(width: 64, height: 40)
+        .overlay(alignment: .bottomTrailing) {
+            // A recording is otherwise indistinguishable from a still in a list of thumbnails.
+            if let duration = item.duration {
+                Text(DurationFormat.clock(duration))
+                    .font(TypeRamp.caption)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, Space.xs)
+                    .background(.black.opacity(0.65), in: Capsule())
+                    .padding(2)
+            }
+        }
         .clipShape(Radius.shape(Radius.sm))
         .overlay(
             Radius.shape(Radius.sm)

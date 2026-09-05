@@ -13,8 +13,10 @@ final class AnnotationCanvasView: NSView {
     var model: EditorModel? {
         didSet { needsDisplay = true }
     }
-    /// Called when a text element is created or double-clicked, so the host can present a field.
-    var onEditText: ((AnnotationElement) -> Void)?
+    /// Called when a text element is created or double-clicked. The rect and font size are in
+    /// view coordinates, so the editing field can be placed exactly where the text will render, at
+    /// the size it will render — which is what makes typing WYSIWYG rather than a guess.
+    var onEditText: ((AnnotationElement, CGRect, CGFloat) -> Void)?
 
     private let renderer = AnnotationRenderer()
     private var dragStart: CGPoint?
@@ -86,6 +88,24 @@ final class AnnotationCanvasView: NSView {
         context.scaleBy(x: 1, y: -1)
         body()
         context.restoreGState()
+    }
+
+    /// Convert a text element's position into view space and hand it to the host.
+    private func beginEditing(_ element: AnnotationElement, fontSize: CGFloat) {
+        guard let model, case .text(let content) = element.kind else { return }
+        let visible = model.document.visibleRect
+        let originInView = transform.toView(
+            CGPoint(x: content.origin.x - visible.minX, y: content.origin.y - visible.minY)
+        )
+        let scaledFont = transform.toView(length: fontSize)
+        let rect = CGRect(
+            x: originInView.x,
+            // The view is y-up while document space is y-down, so flip the origin back.
+            y: bounds.height - originInView.y - scaledFont * 1.35,
+            width: max(160, bounds.width - originInView.x - Space.l),
+            height: scaledFont * 1.35
+        )
+        onEditText?(element, rect, scaledFont)
     }
 
     // MARK: Drawing
@@ -194,6 +214,11 @@ final class AnnotationCanvasView: NSView {
             let hit = model.document.hitTest(point, tolerance: 8 / max(transform.scale, 0.01))
             model.select(hit?.id, extending: event.modifierFlags.contains(.shift))
             movingElement = hit
+            // Double-clicking existing text re-opens it for editing. The Tauri editor had no way
+            // to change a string once placed — you deleted it and typed it again.
+            if event.clickCount == 2, let hit, case .text(let content) = hit.kind {
+                beginEditing(hit, fontSize: content.fontSize)
+            }
         case .step:
             model.add(
                 AnnotationElement(
@@ -203,12 +228,13 @@ final class AnnotationCanvasView: NSView {
             )
             dragStart = nil
         case .text:
+            let fontSize = max(18, model.lineWidth * 6)
             let element = AnnotationElement(
-                kind: .text(.init(string: "", origin: point, fontSize: max(18, model.lineWidth * 6))),
+                kind: .text(.init(string: "", origin: point, fontSize: fontSize)),
                 style: model.style()
             )
             model.add(element)
-            onEditText?(element)
+            beginEditing(element, fontSize: fontSize)
             dragStart = nil
         case .crop:
             cropDraft = CGRect(origin: point, size: .zero)
@@ -276,6 +302,30 @@ final class AnnotationCanvasView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        needsDisplay = true
+    }
+
+    /// The pointer tells you what the next click will do, and a crosshair marks the exact pixel.
+    /// An arrow cursor over a drawing surface hides its own hotspot behind the arrowhead, which is
+    /// why placing a box accurately was guesswork.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: cursor(for: model?.tool ?? .select))
+    }
+
+    private func cursor(for tool: EditorTool) -> NSCursor {
+        switch tool {
+        case .select: .arrow
+        case .text: .iBeam
+        case .freehand, .highlight: .crosshair
+        case .crop: .crosshair
+        default: .crosshair
+        }
+    }
+
+    /// Called by the host when the tool changes, since cursor rects are cached until invalidated.
+    func toolDidChange() {
+        window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 }

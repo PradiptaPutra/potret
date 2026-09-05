@@ -39,6 +39,13 @@ public enum TypeRamp {
     /// Dimensions, file sizes, filenames — anything where digits should not jitter.
     public static let mono = Font.caption.monospacedDigit()
 
+    /// Ink: text whose size comes from the document, not from the design system. An annotation's
+    /// point size is data the user chose and the renderer honours, so it cannot come from the
+    /// ramp — but it still goes through here, so Theme stays the only place fonts are built.
+    public static func ink(size: CGFloat) -> Font {
+        .system(size: size, weight: .semibold)
+    }
+
     /// AppKit equivalents, for the surfaces drawn with CGContext and NSAttributedString rather
     /// than SwiftUI — the selector overlay repaints per mouse-move and draws its text directly.
     /// NSFont is not Sendable, so these are computed rather than stored — an NSFont held in a

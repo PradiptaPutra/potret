@@ -1,6 +1,7 @@
 import AppKit
 import PotretCapture
 import PotretCore
+import PotretRecord
 import SwiftUI
 
 /// Wires the pieces together: hotkeys and menu in, capture out, popup and history after.
@@ -18,15 +19,23 @@ public final class AppCoordinator {
     private let windowPicker = WindowPickerCoordinator()
     private let historyModel: HistoryModel
     private let historyPanel: HistoryPanelController
+    private var historyActions = HistoryActions()
     /// Set by the app delegate so the history panel can anchor under the menu-bar item.
     public weak var statusButton: NSStatusBarButton?
+    /// Called when recording state changes, so the menu bar can reflect it.
+    public var onRecordingStateChanged: (() -> Void)?
     private let cornerHover: CornerHoverController
     private var pinned: PinnedController!
+    private var recorder: RecordingController!
     /// Latest settings, for paths that must answer synchronously (a drag cannot await).
     private var cachedConfig: AppConfig = .default
     private var settingsModel: SettingsModel?
     private var settingsWindow: MainWindowController?
     private var editorWindow: MainWindowController?
+    private var homeWindow: MainWindowController?
+    private var trimWindow: MainWindowController?
+    private var trimModel: TrimModel?
+    private var shortcutLabels: [ShortcutID: String] = [:]
     private var editorModel: EditorModel?
 
     /// Guards against a hotkey that repeats or a menu item double-firing. Matches the Tauri app's
@@ -64,6 +73,16 @@ public final class AppCoordinator {
         self.pinned = PinnedController { [weak self] image, size in
             self?.openEditor(source: image, pixelSize: size)
         }
+        self.recorder = RecordingController(
+            onFinished: { [weak self] recording in
+                self?.onRecordingStateChanged?()
+                self?.finishRecording(recording)
+            },
+            onError: { [weak self] error in
+                self?.onRecordingStateChanged?()
+                self?.present(error: error)
+            }
+        )
 
         // annotate and dragURL need `self`, so they are attached once initialisation is complete.
         var full = actions
@@ -71,6 +90,7 @@ public final class AppCoordinator {
         full.dragURL = { [weak self] item in self?.stageForDrag(item) }
         historyPanel.updateActions(full)
         cornerHover.updateActions(full)
+        historyActions = full
     }
 
     /// Open a stored capture in the editor.
@@ -195,6 +215,180 @@ public final class AppCoordinator {
         cornerHover.showNow()
     }
 
+    public var isRecording: Bool { recorder.isRecording }
+
+    /// Start a recording, choosing the target the same way a capture does.
+    ///
+    /// A browser tab cannot be targeted directly — a tab is not a window, and ScreenCaptureKit
+    /// works in windows and displays. Recording the browser window follows whatever tab is in
+    /// front of it, and area recording covers the case where only part of the page matters.
+    public func record(_ mode: CaptureMode) {
+        guard !recorder.isRecording else {
+            recorder.stop()
+            return
+        }
+        guard CapturePermission.isGranted else {
+            presentPermissionAlert()
+            return
+        }
+
+        switch mode {
+        case .fullscreen:
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let displays = try await self.engine.displays()
+                    let pointer = NSEvent.mouseLocation
+                    let active = displays.first { $0.frame.contains(pointer) } ?? displays.first
+                    guard let active else { throw CaptureError.noDisplays }
+                    await self.recorder.start(target: .display(active.id), settings: self.recordingSettings)
+                    self.onRecordingStateChanged?()
+                } catch {
+                    self.present(error: error)
+                }
+            }
+        case .window:
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let windows = try await self.engine.windows()
+                    self.windowPicker.begin(windows: windows) { [weak self] id in
+                        guard let self, let id else { return }
+                        Task {
+                            await self.recorder.start(
+                                target: .window(id), settings: self.recordingSettings
+                            )
+                            self.onRecordingStateChanged?()
+                        }
+                    }
+                } catch {
+                    self.present(error: error)
+                }
+            }
+        case .area:
+            selector.begin { [weak self] rect, displayID in
+                guard let self, let rect, let displayID else { return }
+                Task {
+                    await self.recorder.start(
+                        target: .region(rect, on: displayID), settings: self.recordingSettings
+                    )
+                    self.onRecordingStateChanged?()
+                }
+            }
+        }
+    }
+
+    public func stopRecording() {
+        recorder.stop()
+    }
+
+    private var recordingSettings: RecordingSettings {
+        RecordingSettings()
+    }
+
+    /// A finished recording goes into history alongside stills, and opens the trimmer.
+    private func finishRecording(_ recording: Recording) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let poster = try await VideoTools.posterFrame(for: recording.url)
+                let png = try ImageEncoder.encode(poster, format: .png, quality: 100)
+                let thumbnailImage = try ImageEncoder.thumbnail(from: png)
+                let thumbnail = try ImageEncoder.encode(thumbnailImage, format: .png, quality: 100)
+                _ = try self.historyStore.saveRecording(
+                    videoURL: recording.url,
+                    thumbnailData: thumbnail,
+                    pixelSize: recording.pixelSize,
+                    duration: recording.duration
+                )
+                self.historyModel.load()
+                Log.capture.info("recording saved to history")
+                self.openTrimmer(for: recording)
+            } catch {
+                Log.capture.error(
+                    "storing recording failed: \(error.localizedDescription, privacy: .public)"
+                )
+                self.present(error: error)
+            }
+        }
+    }
+
+    /// Open a finished recording for trimming and export.
+    private func openTrimmer(for recording: Recording) {
+        let model = TrimModel(recording: recording)
+        trimModel = model
+        trimWindow = MainWindowController(
+            title: "Recording",
+            defaultSize: NSSize(width: 720, height: 520),
+            resizable: true
+        ) { [weak self] in
+            TrimView(
+                model: model,
+                onSave: { url in self?.saveRecordingFile(url, extension: "mp4") },
+                onExportGIF: { url in self?.saveRecordingFile(url, extension: "gif") },
+                onDiscard: { self?.closeTrimmer() }
+            )
+        }
+        trimWindow?.show()
+    }
+
+    private func closeTrimmer() {
+        trimWindow?.close()
+        trimWindow = nil
+        trimModel = nil
+    }
+
+    /// Copy a finished video or GIF into the user's save folder, under the filename template.
+    private func saveRecordingFile(_ url: URL, extension ext: String) {
+        do {
+            let directory = cachedConfig.saveDirectory
+            try FileManager.default.createDirectory(
+                at: directory, withIntermediateDirectories: true
+            )
+            let destination = FilenameTemplate(cachedConfig.filenameTemplate)
+                .uniqueURL(in: directory, ext: ext)
+            try FileManager.default.copyItem(at: url, to: destination)
+            Log.capture.info("saved recording to \(destination.lastPathComponent, privacy: .public)")
+            NSWorkspace.shared.activateFileViewerSelecting([destination])
+        } catch {
+            Log.capture.error("saving recording failed: \(error.localizedDescription, privacy: .public)")
+            present(error: error)
+        }
+        closeTrimmer()
+    }
+
+    /// The app's main window: capture and record actions, and everything captured so far.
+    public func showHome() {
+        if homeWindow == nil {
+            var actions = HomeActions()
+            actions.captureArea = { [weak self] in self?.capture(.area) }
+            actions.captureWindow = { [weak self] in self?.capture(.window) }
+            actions.captureScreen = { [weak self] in self?.capture(.fullscreen) }
+            actions.recordArea = { [weak self] in self?.record(.area) }
+            actions.recordWindow = { [weak self] in self?.record(.window) }
+            actions.recordScreen = { [weak self] in self?.record(.fullscreen) }
+            actions.openSettings = { [weak self] in self?.showSettings() }
+
+            let model = historyModel
+            let history = historyActions
+            let labels = shortcutLabels
+            homeWindow = MainWindowController(
+                title: "Potret",
+                defaultSize: NSSize(width: 860, height: 560),
+                resizable: true
+            ) {
+                HomeView(
+                    model: model,
+                    actions: actions,
+                    historyActions: history,
+                    shortcuts: labels
+                )
+            }
+        }
+        historyModel.load()
+        homeWindow?.show()
+    }
+
     /// Open Settings, creating it on first use.
     public func showSettings() {
         if settingsWindow == nil {
@@ -258,6 +452,7 @@ public final class AppCoordinator {
 
         // The empty state names the user's own shortcut rather than a hardcoded default.
         historyPanel.setCaptureHint(combos[.captureFullscreen]?.displayString)
+        shortcutLabels = combos.mapValues(\.displayString)
 
         // One-time cleanup of the LaunchAgent the Tauri autostart plugin wrote; it points at the
         // old bundle and is invisible in System Settings.

@@ -55,6 +55,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.ui.info("POTRET_EDIT_ON_LAUNCH set")
                 coordinator.captureAndEdit()
             }
+            // Record for N seconds then stop, so the pipeline can be exercised without a HUD click.
+            if let seconds = ProcessInfo.processInfo.environment["POTRET_RECORD_SECONDS"],
+               let duration = Double(seconds) {
+                Log.ui.info("POTRET_RECORD_SECONDS=\(seconds, privacy: .public)")
+                coordinator.record(.fullscreen)
+                Task {
+                    try? await Task.sleep(for: .seconds(duration))
+                    coordinator.stopRecording()
+                }
+            }
             if ProcessInfo.processInfo.environment["POTRET_SHOW_CORNER"] != nil {
                 Log.ui.info("POTRET_SHOW_CORNER set — opening the corner stack")
                 coordinator.showCornerStack()

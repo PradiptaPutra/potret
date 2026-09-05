@@ -38,7 +38,13 @@
 	<true/>
 
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Potret needs screen recording access to capture screenshots.</string>
+	<string>Potret needs screen recording access to capture screenshots and record your screen.</string>
+
+	<!-- System audio needs no permission of its own; the microphone does. Declared here so
+	     enabling narration later is a settings change rather than a plist change, and macOS has
+	     a string to show when it first asks. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Potret uses the microphone to record narration alongside your screen.</string>
 
 	<!-- Stop macOS reaping the idle menu-bar app. -->
 	<key>NSSupportsAutomaticTermination</key>

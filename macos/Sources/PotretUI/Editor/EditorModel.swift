@@ -107,6 +107,13 @@ public final class EditorModel {
         mutate(&document)
     }
 
+    /// Replace an element without recording undo — used while text is being typed, so the canvas
+    /// shows the real thing live but Cmd+Z rewinds the whole string rather than one letter.
+    public func updateLive(_ element: AnnotationElement) {
+        guard let index = document.index(of: element.id) else { return }
+        document.elements[index] = element
+    }
+
     public func apply(_ edit: DocumentEdit, name: String) {
         edit.apply(to: &document)
         undoManager.setActionName(name)
