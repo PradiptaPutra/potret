@@ -192,6 +192,12 @@ func renderEditorOrientation() throws {
         ),
     ]
 
+    // With a backdrop, so the gradient, rounded corners and the drop shadow are all visible —
+    // the shadow being the feature the old tool silently never drew.
+    document.background = Backdrop(
+        paddingFraction: 0.05, cornerFraction: 0.012, shadow: .default, fill: .gradient(.twilight)
+    )
+
     let model = EditorModel(document: document, source: realSource) { _ in }
     try renderPNG(
         EditorView(model: model),

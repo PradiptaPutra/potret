@@ -18,17 +18,30 @@ public struct AnnotationDocument: Equatable, Sendable {
     /// Back to front. Index is z-order.
     public var elements: [AnnotationElement]
     public var selection: Set<AnnotationElement.ID>
+    /// A backdrop to sit the capture on. A document property rather than a separate tool, so it
+    /// renders through the same pipeline, exports through the same path, and is undoable like
+    /// anything else. The Tauri background tool was a 594-line modal with its own compositor, its
+    /// own preview scaling and its own clipboard implementation.
+    public var background: Backdrop?
 
     public init(
         sourceSize: CGSize,
         cropRect: CGRect? = nil,
         elements: [AnnotationElement] = [],
-        selection: Set<AnnotationElement.ID> = []
+        selection: Set<AnnotationElement.ID> = [],
+        background: Backdrop? = nil
     ) {
         self.sourceSize = sourceSize
         self.cropRect = cropRect
         self.elements = elements
         self.selection = selection
+        self.background = background
+    }
+
+    /// Size of the finished image, including any backdrop padding.
+    public var outputSize: CGSize {
+        guard let background else { return visibleRect.size }
+        return background.outputSize(for: visibleRect.size)
     }
 
     /// The region actually rendered — the crop if there is one, otherwise the whole image.

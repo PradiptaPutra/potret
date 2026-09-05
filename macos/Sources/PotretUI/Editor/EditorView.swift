@@ -25,6 +25,7 @@ public struct EditorView: View {
     @Bindable var model: EditorModel
     @State private var editingElement: AnnotationElement?
     @State private var draftText = ""
+    @State private var showingInspector = false
 
     public init(model: EditorModel) {
         self.model = model
@@ -34,14 +35,20 @@ public struct EditorView: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            ZStack {
-                Color(nsColor: .underPageBackgroundColor)
-                CanvasRepresentable(model: model) { element in
-                    editingElement = element
-                    draftText = ""
+            HStack(spacing: 0) {
+                ZStack {
+                    Color(nsColor: .underPageBackgroundColor)
+                    CanvasRepresentable(model: model) { element in
+                        editingElement = element
+                        draftText = ""
+                    }
+                    if let editingElement {
+                        textEditor(for: editingElement)
+                    }
                 }
-                if let editingElement {
-                    textEditor(for: editingElement)
+                if showingInspector {
+                    Divider()
+                    BackgroundInspector(model: model)
                 }
             }
         }
@@ -107,6 +114,19 @@ public struct EditorView: View {
                 .help("Stroke width")
 
             Spacer(minLength: Space.s)
+
+            Button {
+                showingInspector.toggle()
+            } label: {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .frame(width: Space.l, height: Space.l)
+            }
+            .buttonStyle(.accessoryBar)
+            .background(
+                showingInspector ? Color.accentColor.opacity(0.25) : .clear,
+                in: Radius.shape(Radius.sm)
+            )
+            .help("Backdrop")
 
             Button("Done") { model.finish() }
                 .buttonStyle(.borderedProminent)

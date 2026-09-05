@@ -21,6 +21,7 @@ public final class AppCoordinator {
     /// Set by the app delegate so the history panel can anchor under the menu-bar item.
     public weak var statusButton: NSStatusBarButton?
     private let cornerHover: CornerHoverController
+    private var pinned: PinnedController!
     /// Latest settings, for paths that must answer synchronously (a drag cannot await).
     private var cachedConfig: AppConfig = .default
     private var settingsModel: SettingsModel?
@@ -60,6 +61,10 @@ public final class AppCoordinator {
         self.historyPanel = HistoryPanelController(model: model, actions: actions)
         self.cornerHover = CornerHoverController(model: model, actions: actions)
 
+        self.pinned = PinnedController { [weak self] image, size in
+            self?.openEditor(source: image, pixelSize: size)
+        }
+
         // annotate and dragURL need `self`, so they are attached once initialisation is complete.
         var full = actions
         full.annotate = { [weak self] item in self?.openEditor(for: item) }
@@ -79,6 +84,25 @@ public final class AppCoordinator {
         }
         historyPanel.hide()
         openEditor(source: cgImage, pixelSize: item.pixelSize)
+    }
+
+    /// Stage an in-memory capture for dragging, under the user's filename template.
+    private func stageForDrag(image: CGImage) -> URL? {
+        do {
+            let data = try ImageEncoder.encode(image, format: .png, quality: 100)
+            let directory = DragStaging.directory
+            try? FileManager.default.removeItem(at: directory)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let name = DragStaging.name(
+                for: FilenameTemplate(cachedConfig.filenameTemplate), ext: "png"
+            )
+            let url = directory.appending(path: name)
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            Log.ui.error("staging drag failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     /// Copy a capture under its templated name so the drag carries a readable filename.
@@ -412,6 +436,16 @@ public final class AppCoordinator {
             self.popup.dismiss()
             self.openEditor(source: captured.cgImage, pixelSize: captured.pixelSize)
         }
+        actions.pin = { [weak self] in
+            guard let self else { return }
+            self.popup.dismiss()
+            self.pinned.pin(image: captured.cgImage) { [weak self] in
+                self?.stageForDrag(image: captured.cgImage)
+            }
+        }
+        // Dragging the preview out of the popup is how a capture gets somewhere without a round
+        // trip through Save.
+        actions.dragURL = { [weak self] in self?.stageForDrag(image: captured.cgImage) }
 
         if historyPanel.isVisible { historyModel.load() }
 

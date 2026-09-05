@@ -23,12 +23,15 @@ public final class AnnotationRenderer {
 
     /// - Parameters:
     ///   - transform: document → target space. Use `.init()` for a 1:1 export.
+    /// - Parameter backgroundImage: decoded custom backdrop, when the style uses one. Passed in
+    ///   rather than loaded here so this stays synchronous and free of file IO.
     public func draw(
         document: AnnotationDocument,
         source: CGImage,
         into context: CGContext,
         transform: DocumentTransform = DocumentTransform(),
-        targetHeight: CGFloat
+        targetHeight: CGFloat,
+        backgroundImage: CGImage? = nil
     ) {
         context.saveGState()
         defer { context.restoreGState() }
@@ -47,8 +50,28 @@ public final class AnnotationRenderer {
         context.scaleBy(x: transform.scale, y: transform.scale)
 
         let visible = document.visibleRect
+
+        // Backdrop pass. Shifts the capture inward by the padding, so everything below draws in
+        // the same document coordinates whether or not there is a background.
+        if let background = document.background {
+            let inset = background.padding(for: visible.size)
+            drawBackground(background, imageSize: visible.size, in: context, backgroundImage: backgroundImage)
+            context.translateBy(x: inset, y: inset)
+        }
+
         context.translateBy(x: -visible.minX, y: -visible.minY)
-        context.clip(to: visible)
+
+        // Rounded corners belong to the capture, so the clip is the corner radius when there is a
+        // backdrop and a plain rect otherwise.
+        if let background = document.background, background.cornerFraction > 0 {
+            let radius = background.cornerRadius(for: visible.size)
+            context.addPath(
+                CGPath(roundedRect: visible, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            )
+            context.clip()
+        } else {
+            context.clip(to: visible)
+        }
 
         drawUpright(source, size: document.sourceSize, in: context)
 
@@ -64,15 +87,102 @@ public final class AnnotationRenderer {
         }
     }
 
+    /// Fill, then the capture's drop shadow.
+    ///
+    /// The shadow is cast by a **separate filled shape drawn before any clipping**. This is the
+    /// exact bug the Tauri background tool shipped: it set shadowBlur/shadowColor and then clipped
+    /// to the same rounded rect it drew the image into, so the shadow rendered entirely outside
+    /// the clip region and was discarded. With the default corner radius of 12 the shadow toggle
+    /// did nothing at all — the feature looked implemented and never drew a pixel.
+    private func drawBackground(
+        _ style: Backdrop,
+        imageSize: CGSize,
+        in context: CGContext,
+        backgroundImage: CGImage?
+    ) {
+        let output = style.outputSize(for: imageSize)
+        let imageRect = style.imageRect(for: imageSize)
+        let radius = style.cornerRadius(for: imageSize)
+        let bounds = CGRect(origin: .zero, size: output)
+
+        context.saveGState()
+        switch style.fill {
+        case .none:
+            break
+        case .solid(let ink):
+            context.setFillColor(ink.cgColor)
+            context.fill(bounds)
+        case .gradient(let preset):
+            drawGradient(preset, in: bounds, context: context)
+        case .image:
+            if let backgroundImage {
+                let source = CGSize(width: backgroundImage.width, height: backgroundImage.height)
+                // Aspect-fill and centred, never stretched.
+                let rect = Backdrop.aspectFill(source: source, in: output)
+                context.saveGState()
+                context.clip(to: bounds)
+                drawUpright(backgroundImage, size: rect.size, in: context, at: rect.origin)
+                context.restoreGState()
+            }
+        }
+        context.restoreGState()
+
+        guard let shadow = style.shadow else { return }
+        let shorter = min(imageSize.width, imageSize.height)
+        context.saveGState()
+        context.setShadow(
+            offset: CGSize(width: 0, height: shorter * shadow.yOffsetFraction),
+            blur: shorter * shadow.radiusFraction,
+            color: CGColor(gray: 0, alpha: shadow.opacity)
+        )
+        // An opaque shape whose only visible contribution is the shadow it casts; the capture is
+        // drawn over it immediately afterwards.
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.addPath(
+            CGPath(roundedRect: imageRect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        )
+        context.fillPath()
+        context.restoreGState()
+    }
+
+    private func drawGradient(_ preset: GradientPreset, in rect: CGRect, context: CGContext) {
+        let colors = preset.stops.map(\.cgColor) as CFArray
+        let locations = preset.stops.enumerated().map { index, _ in
+            CGFloat(index) / CGFloat(max(1, preset.stops.count - 1))
+        }
+        guard
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: locations
+            )
+        else { return }
+        let direction = preset.direction
+        context.saveGState()
+        context.clip(to: rect)
+        context.drawLinearGradient(
+            gradient,
+            start: CGPoint(x: rect.minX + direction.start.x * rect.width,
+                           y: rect.minY + direction.start.y * rect.height),
+            end: CGPoint(x: rect.minX + direction.end.x * rect.width,
+                         y: rect.minY + direction.end.y * rect.height),
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        )
+        context.restoreGState()
+    }
+
     /// Draw an image the right way up inside the y-down document space.
     ///
     /// `CGContext.draw` honours the current transform, and the context has been flipped so that
     /// document coordinates read top-left origin. Drawing an image directly into that space
     /// renders it vertically mirrored — so the flip is undone locally, for the image only. Getting
     /// this wrong is invisible on a symmetrical test image and unmistakable on a screenshot.
-    private func drawUpright(_ image: CGImage, size: CGSize, in context: CGContext) {
+    private func drawUpright(
+        _ image: CGImage,
+        size: CGSize,
+        in context: CGContext,
+        at origin: CGPoint = .zero
+    ) {
         context.saveGState()
-        context.translateBy(x: 0, y: size.height)
+        context.translateBy(x: origin.x, y: origin.y + size.height)
         context.scaleBy(x: 1, y: -1)
         context.draw(image, in: CGRect(origin: .zero, size: size))
         context.restoreGState()

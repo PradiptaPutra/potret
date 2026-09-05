@@ -32,8 +32,8 @@ struct RenderGoldenTests {
         scale: CGFloat = 1
     ) throws -> Bitmap {
         let size = CGSize(
-            width: document.visibleRect.width * scale,
-            height: document.visibleRect.height * scale
+            width: document.outputSize.width * scale,
+            height: document.outputSize.height * scale
         )
         let context = try #require(
             CGContext(
@@ -179,6 +179,72 @@ struct RenderGoldenTests {
         let bitmap = try render(document, source: try source())
         #expect(bitmap.width == 100 && bitmap.height == 100)
         #expect(document.elements.count == 1, "crop must not consume annotations")
+    }
+
+    // MARK: Backdrop
+
+    @Test("A backdrop pads the capture and fills behind it")
+    func backdropPadsAndFills() throws {
+        var document = AnnotationDocument(sourceSize: CGSize(width: 100, height: 100))
+        document.background = Backdrop(
+            paddingFraction: 0.2, cornerFraction: 0, shadow: nil,
+            fill: .solid(InkColor(hex: 0x00FF00))
+        )
+        let bitmap = try render(document, source: try source(width: 100, height: 100))
+
+        #expect(bitmap.width == 140 && bitmap.height == 140)
+        // Corner is backdrop, middle is the capture.
+        let corner = bitmap.rgb(atX: 5, y: 5)
+        #expect(corner.g > 200 && corner.r < 60, "corner should be the fill, got \(corner)")
+        #expect(bitmap.isWhite(atX: 70, y: 70), "middle should be the capture")
+    }
+
+    @Test("The drop shadow is actually drawn at a non-zero corner radius")
+    func shadowSurvivesTheCornerClip() throws {
+        // This is the Tauri bug reproduced exactly. That tool set shadowBlur/shadowColor, then
+        // clipped to the same rounded rect it drew the image into — so the shadow rendered
+        // outside the clip and was discarded. Its default cornerRadius was 12, so the shadow
+        // toggle never drew a single pixel in the default configuration.
+        var document = AnnotationDocument(sourceSize: CGSize(width: 100, height: 100))
+        document.background = Backdrop(
+            paddingFraction: 0.3,
+            cornerFraction: 0.12, // non-zero: the exact case that used to fail
+            shadow: .init(radiusFraction: 0.08, opacity: 0.9, yOffsetFraction: 0),
+            fill: .solid(InkColor(hex: 0xFFFFFF))
+        )
+        let bitmap = try render(document, source: try source(width: 100, height: 100))
+
+        // Just outside the capture's edge: white backdrop, so any darkening is the shadow.
+        let inset = 30 // 0.3 * 100
+        let justOutside = bitmap.rgb(atX: bitmap.width / 2, y: inset - 4)
+        #expect(justOutside.r < 235, "expected shadow darkening, got \(justOutside)")
+
+        // Far corner should remain clean backdrop.
+        let farCorner = bitmap.rgb(atX: 2, y: 2)
+        #expect(farCorner.r > 240, "corner should be untouched backdrop, got \(farCorner)")
+    }
+
+    @Test("Turning the shadow off changes the output")
+    func shadowIsActuallyOptional() throws {
+        var document = AnnotationDocument(sourceSize: CGSize(width: 100, height: 100))
+        let base = Backdrop(
+            paddingFraction: 0.3, cornerFraction: 0.12,
+            shadow: .init(radiusFraction: 0.08, opacity: 0.9, yOffsetFraction: 0),
+            fill: .solid(InkColor(hex: 0xFFFFFF))
+        )
+        document.background = base
+        let withShadow = try render(document, source: try source(width: 100, height: 100))
+
+        var without = base
+        without.shadow = nil
+        document.background = without
+        let withoutShadow = try render(document, source: try source(width: 100, height: 100))
+
+        let probeY = 30 - 4
+        #expect(
+            withShadow.rgb(atX: 65, y: probeY).r < withoutShadow.rgb(atX: 65, y: probeY).r,
+            "the shadow toggle must change the image"
+        )
     }
 
     // MARK: Cache behaviour

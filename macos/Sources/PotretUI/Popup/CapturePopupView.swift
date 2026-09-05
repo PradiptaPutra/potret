@@ -14,6 +14,8 @@ public struct CapturePopupActions {
     public var pin: (() -> Void)?
     public var backdrop: (() -> Void)?
     public var dismiss: (() -> Void)?
+    /// Stages the capture and returns a URL to drag out of the preview.
+    public var dragURL: (() -> URL?)?
 
     public init() {}
 }
@@ -103,8 +105,12 @@ public struct CapturePopupView: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: Self.width, height: Self.imageHeight)
                 .clipped()
-                // The image is the drag source for drag-out, so nothing may cover it.
+                // The image is the drag source, so nothing may cover it.
                 .accessibilityLabel("Capture preview. Drag to another app.")
+                .onDrag {
+                    guard let url = actions.dragURL?() else { return NSItemProvider() }
+                    return HistoryActions.imageProvider(for: url)
+                }
 
             Divider()
 

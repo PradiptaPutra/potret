@@ -41,7 +41,7 @@ public struct HistoryActions {
     /// and Slack want a file on disk to reference, while web-based composers want the bytes. The
     /// file representation is registered first, so a destination that can take either gets the
     /// one that preserves the filename.
-    static func imageProvider(for url: URL) -> NSItemProvider {
+    public static func imageProvider(for url: URL) -> NSItemProvider {
         let provider = NSItemProvider()
         let type = UTType.png.identifier
         provider.suggestedName = url.lastPathComponent
