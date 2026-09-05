@@ -74,7 +74,7 @@ public struct AnnotationElement: Identifiable, Equatable, Codable, Sendable {
 /// Lives in Core, and is the one place outside the theme allowed to name literal colours: ink is
 /// document data that has to serialize and reopen identically, not themeable chrome. A red arrow
 /// must stay the same red in Light mode, Dark mode and in the exported PNG.
-public struct InkColor: Equatable, Codable, Sendable {
+public struct InkColor: Hashable, Codable, Sendable {
     public let red: Double
     public let green: Double
     public let blue: Double

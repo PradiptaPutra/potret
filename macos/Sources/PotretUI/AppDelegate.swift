@@ -50,6 +50,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.ui.info("POTRET_SHOW_HISTORY set — opening the history panel")
                 coordinator.toggleHistory()
             }
+            // Capture and go straight into the editor, for verifying it end to end.
+            if ProcessInfo.processInfo.environment["POTRET_EDIT_ON_LAUNCH"] != nil {
+                Log.ui.info("POTRET_EDIT_ON_LAUNCH set")
+                coordinator.captureAndEdit()
+            }
             if ProcessInfo.processInfo.environment["POTRET_SHOW_CORNER"] != nil {
                 Log.ui.info("POTRET_SHOW_CORNER set — opening the corner stack")
                 coordinator.showCornerStack()

@@ -23,6 +23,8 @@ public final class AppCoordinator {
     private let cornerHover: CornerHoverController
     private var settingsModel: SettingsModel?
     private var settingsWindow: MainWindowController?
+    private var editorWindow: MainWindowController?
+    private var editorModel: EditorModel?
 
     /// Guards against a hotkey that repeats or a menu item double-firing. Matches the Tauri app's
     /// 500ms, which existed for the same reason.
@@ -52,9 +54,79 @@ public final class AppCoordinator {
             NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
         }
         actions.delete = { [weak model] item in model?.delete(item) }
+        // Assigned after init, because it needs self.
+        actions.annotate = nil
         actions.clearAll = { [weak model] in model?.clearAll() }
         self.historyPanel = HistoryPanelController(model: model, actions: actions)
         self.cornerHover = CornerHoverController(model: model, actions: actions)
+    }
+
+    /// Capture the screen and open the editor on it directly — verification path.
+    public func captureAndEdit() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let displays = try await self.engine.displays()
+                guard let display = displays.first else { return }
+                let captured = try await self.engine.capture(.display(display.id))
+                self.openEditor(source: captured.cgImage, pixelSize: captured.pixelSize)
+            } catch {
+                Log.capture.error("captureAndEdit failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// Open the annotation editor on a captured image.
+    public func openEditor(source: CGImage, pixelSize: CGSize) {
+        let model = EditorModel(
+            document: AnnotationDocument(sourceSize: pixelSize),
+            source: source
+        ) { [weak self] rendered in
+            self?.finishEditing(rendered)
+        }
+        editorModel = model
+        // A fresh window per session: the document is per-capture, and reusing one would carry the
+        // previous capture's undo stack into the next. The Tauri editor keyed its React component
+        // on the capture id for exactly this reason (issue #5, annotations bleeding between
+        // screenshots).
+        editorWindow = MainWindowController(title: "Annotate") {
+            EditorView(model: model)
+        }
+        editorWindow?.show()
+    }
+
+    private func finishEditing(_ image: CGImage) {
+        Task { [weak self] in
+            guard let self else { return }
+            let config = await self.configStore.current
+            do {
+                let png = try ImageEncoder.encode(image, format: .png, quality: 100)
+                let thumbnailImage = try ImageEncoder.thumbnail(from: png)
+                let thumbnail = try ImageEncoder.encode(thumbnailImage, format: .png, quality: 100)
+                _ = try self.historyStore.save(
+                    imageData: png,
+                    thumbnailData: thumbnail,
+                    pixelSize: CGSize(width: image.width, height: image.height)
+                )
+                let data = try ImageEncoder.encode(
+                    image, format: config.format, quality: config.clampedJPEGQuality
+                )
+                let directory = config.saveDirectory
+                try FileManager.default.createDirectory(
+                    at: directory, withIntermediateDirectories: true
+                )
+                let url = FilenameTemplate(config.filenameTemplate).uniqueURL(
+                    in: directory, ext: config.format.rawValue
+                )
+                try data.write(to: url, options: .atomic)
+                Log.ui.info("annotated capture saved")
+            } catch {
+                Log.ui.error("saving annotation failed: \(error.localizedDescription, privacy: .public)")
+            }
+            self.editorWindow?.close()
+            self.editorWindow = nil
+            self.editorModel = nil
+        }
     }
 
     /// Force the corner stack open — verification only; the real trigger is the corner hot zone.
@@ -294,6 +366,11 @@ public final class AppCoordinator {
         actions.save = { [weak self] in
             guard let self else { return }
             Task { await self.save(captured) }
+        }
+        actions.annotate = { [weak self] in
+            guard let self else { return }
+            self.popup.dismiss()
+            self.openEditor(source: captured.cgImage, pixelSize: captured.pixelSize)
         }
 
         if historyPanel.isVisible { historyModel.load() }
