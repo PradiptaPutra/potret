@@ -7,6 +7,19 @@ import SwiftUI
 /// The panel is created once and reused. The Tauri app pre-created hidden webview windows at
 /// launch because building one cost ~200ms and flashed black; an NSPanel with a SwiftUI content
 /// view costs a millisecond or two, so it is built lazily on first capture instead.
+/// Observable state for the popup.
+///
+/// The view is hosted once and observes this. It used to be rebuilt on every countdown tick —
+/// `panel.host(...)` assigns a brand-new NSHostingView — which destroyed and recreated the entire
+/// view four times a second. Any gesture in progress died with it, which is why dragging the
+/// preview out never started: the drag source was replaced before the gesture could be recognised.
+@MainActor
+@Observable
+final class PopupState {
+    var preview: PopupPreview?
+    var actions = CapturePopupActions()
+}
+
 @MainActor
 public final class CapturePopupController {
     /// Matches the Tauri popup's 5s, which was tuned against real use — long enough to reach for
@@ -16,8 +29,7 @@ public final class CapturePopupController {
 
     private var panel: OverlayPanel?
     private var countdown: Task<Void, Never>?
-    private var preview: PopupPreview?
-    private var actions = CapturePopupActions()
+    private let state = PopupState()
     private var hovering = false
     /// True while a drag started from the preview is still in flight.
     private var dragging = false
@@ -31,10 +43,11 @@ public final class CapturePopupController {
         pixelSize: CGSize,
         actions: CapturePopupActions
     ) {
-        self.actions = actions
-        self.actions.dismiss = { [weak self] in self?.dismiss() }
-        self.actions.dragBegan = { [weak self] in self?.holdForDrag() }
-        preview = PopupPreview(image: image, pixelSize: pixelSize, progress: 1)
+        var actions = actions
+        actions.dismiss = { [weak self] in self?.dismiss() }
+        actions.dragBegan = { [weak self] in self?.holdForDrag() }
+        state.actions = actions
+        state.preview = PopupPreview(image: image, pixelSize: pixelSize, progress: 1)
         remaining = Self.lifetime
 
         let panel = existingPanel()
@@ -44,15 +57,14 @@ public final class CapturePopupController {
             ),
             display: false
         )
-        render()
+        installContent()
         panel.present()
         startCountdown()
     }
 
     /// Replace the action bar with a short confirmation, then dismiss.
     public func flash(_ message: String, thenDismissAfter delay: Duration = .milliseconds(700)) {
-        preview?.flash = message
-        render()
+        state.preview?.flash = message
         countdown?.cancel()
         countdown = Task { [weak self] in
             try? await Task.sleep(for: delay)
@@ -65,7 +77,7 @@ public final class CapturePopupController {
         countdown?.cancel()
         countdown = nil
         panel?.orderOut(nil)
-        preview = nil
+        state.preview = nil
     }
 
     /// Hold the popup open for a drag, and release once no button is down.
@@ -101,10 +113,11 @@ public final class CapturePopupController {
         return panel
     }
 
-    private func render() {
-        guard let preview else { return }
+    /// Host the view once. Everything after this is a property change the view observes.
+    private func installContent() {
+        guard existingPanel().contentView is NSHostingView<AnyView> == false else { return }
         existingPanel().host(
-            CapturePopupView(preview: preview, actions: actions)
+            PopupHost(state: state)
                 .onHover { [weak self] isInside in self?.hovering = isInside }
         )
     }
@@ -127,13 +140,27 @@ public final class CapturePopupController {
                     self.dismiss()
                     return
                 }
-                self.preview?.progress =
-                    Double(self.remaining.components.attoseconds)
-                    / Double(Self.lifetime.components.attoseconds)
-                    + Double(self.remaining.components.seconds)
-                    / Double(Self.lifetime.components.seconds)
-                self.render()
+                self.state.preview?.progress = self.remaining.seconds / Self.lifetime.seconds
             }
         }
+    }
+}
+
+
+/// Thin wrapper so the hosted view observes the state object rather than being replaced.
+private struct PopupHost: View {
+    @Bindable var state: PopupState
+
+    var body: some View {
+        if let preview = state.preview {
+            CapturePopupView(preview: preview, actions: state.actions)
+        }
+    }
+}
+
+extension Duration {
+    /// Seconds as a Double, for progress maths.
+    var seconds: Double {
+        Double(components.seconds) + Double(components.attoseconds) / 1e18
     }
 }

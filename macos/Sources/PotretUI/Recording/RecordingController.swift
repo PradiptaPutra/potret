@@ -25,6 +25,10 @@ public final class RecordingController {
 
     private var session: RecordingSession?
     private var hud: OverlayPanel?
+    /// Hosted once; the HUD observes it. Rebuilding the hosting view on every tick meant the
+    /// Stop button was destroyed and recreated four times a second, so a click could land on a
+    /// view that no longer existed.
+    private let hudState = HUDState()
     private var ticker: Task<Void, Never>?
     private var startedAt: Date?
     private var pausedTotal: TimeInterval = 0
@@ -75,7 +79,7 @@ public final class RecordingController {
             pausedAt = Date()
             isPaused = true
         }
-        renderHUD()
+        hudState.isPaused = isPaused
     }
 
     public func stop() {
@@ -120,19 +124,12 @@ public final class RecordingController {
             display: false
         )
         hud = panel
-        renderHUD()
+        hudState.elapsed = 0
+        hudState.isPaused = false
+        hudState.onTogglePause = { [weak self] in self?.togglePause() }
+        hudState.onStop = { [weak self] in self?.stop() }
+        panel.host(RecordingHUDHost(state: hudState))
         panel.present()
-    }
-
-    private func renderHUD() {
-        hud?.host(
-            RecordingHUD(
-                elapsed: elapsed,
-                isPaused: isPaused,
-                onTogglePause: { [weak self] in self?.togglePause() },
-                onStop: { [weak self] in self?.stop() }
-            )
-        )
     }
 
     private func hideHUD() {
@@ -147,7 +144,7 @@ public final class RecordingController {
                 guard let self, self.isRecording else { return }
                 if !self.isPaused, let startedAt = self.startedAt {
                     self.elapsed = Date().timeIntervalSince(startedAt) - self.pausedTotal
-                    self.renderHUD()
+                    self.hudState.elapsed = self.elapsed
                 }
                 // A forgotten recording is finalised rather than left running forever.
                 if self.elapsed >= Self.maximumDuration {
@@ -157,6 +154,29 @@ public final class RecordingController {
                 }
             }
         }
+    }
+}
+
+/// Observable HUD state, so the view is hosted once and updated in place.
+@MainActor
+@Observable
+final class HUDState {
+    var elapsed: TimeInterval = 0
+    var isPaused = false
+    var onTogglePause: () -> Void = {}
+    var onStop: () -> Void = {}
+}
+
+struct RecordingHUDHost: View {
+    @Bindable var state: HUDState
+
+    var body: some View {
+        RecordingHUD(
+            elapsed: state.elapsed,
+            isPaused: state.isPaused,
+            onTogglePause: state.onTogglePause,
+            onStop: state.onStop
+        )
     }
 }
 

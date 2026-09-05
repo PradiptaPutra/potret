@@ -27,6 +27,7 @@ public final class AppCoordinator {
     private let cornerHover: CornerHoverController
     private var pinned: PinnedController!
     private var recorder: RecordingController!
+    private let toast = ToastController()
     /// Latest settings, for paths that must answer synchronously (a drag cannot await).
     private var cachedConfig: AppConfig = .default
     private var settingsModel: SettingsModel?
@@ -404,6 +405,7 @@ public final class AppCoordinator {
                 .uniqueURL(in: directory, ext: ext)
             try FileManager.default.copyItem(at: url, to: destination)
             Log.capture.info("saved recording to \(destination.lastPathComponent, privacy: .public)")
+            toast.show("Saved \(destination.lastPathComponent)")
             NSWorkspace.shared.activateFileViewerSelecting([destination])
         } catch {
             Log.capture.error("saving recording failed: \(error.localizedDescription, privacy: .public)")
@@ -743,14 +745,23 @@ public final class AppCoordinator {
 
     // MARK: Errors
 
+    /// Errors go to a panel, not an alert.
+    ///
+    /// NSAlert.runModal() from an accessory app that is not active can land behind whatever the
+    /// user is looking at — so failures were being reported where nobody could see them, and a
+    /// feature that failed looked identical to one that did nothing.
     private func present(error: any Error) {
         popup.dismiss()
-        let alert = NSAlert()
-        alert.messageText = "Capture failed"
-        alert.informativeText = (error as? CaptureError)?.errorDescription
+        let message = (error as? CaptureError)?.errorDescription
+            ?? (error as? RecordingError)?.errorDescription
             ?? error.localizedDescription
-        alert.alertStyle = .warning
-        alert.runModal()
+        Log.capture.error("presented error: \(message, privacy: .public)")
+        toast.show(message, isError: true)
+    }
+
+    /// A short confirmation, for actions with no other visible result.
+    public func notify(_ message: String) {
+        toast.show(message)
     }
 
     private func presentPermissionAlert() {
