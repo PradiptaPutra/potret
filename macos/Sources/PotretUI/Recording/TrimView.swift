@@ -215,7 +215,7 @@ public struct TrimView: View {
     }
 
     private var hud: some View {
-        VStack(spacing: Space.s) {
+        VStack(spacing: Space.m) {
             FilmstripScrubber(model: model)
 
             HStack(spacing: Space.m) {
@@ -223,40 +223,48 @@ public struct TrimView: View {
                     model.togglePlayback()
                 } label: {
                     Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                        .frame(width: Space.l, height: Space.l)
+                        .font(TypeRamp.heading)
+                        .frame(width: Space.xxl, height: Space.xxl)
+                        .background(.white.opacity(0.14), in: Circle())
                 }
-                .buttonStyle(.accessoryBar)
+                .buttonStyle(.plain)
                 .help(model.isPlaying ? "Pause" : "Play selection")
                 .keyboardShortcut(.space, modifiers: [])
 
-                Text("\(Clock.precise(model.start)) – \(Clock.precise(model.end))")
-                    .font(TypeRamp.mono)
-                Text("· \(Clock.precise(model.trimmedDuration))")
-                    .font(TypeRamp.mono)
-                    .foregroundStyle(.secondary)
-
-                if let status = model.status {
-                    Text(status)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(Clock.precise(model.start)) – \(Clock.precise(model.end))")
+                        .font(TypeRamp.mono)
+                    Text(model.status ?? "\(Clock.precise(model.trimmedDuration)) selected")
                         .font(TypeRamp.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 0)
 
-                Button("Close") { onDiscard() }
-                    .buttonStyle(.bordered)
-                    .keyboardShortcut(.cancelAction)
+                // One action. The format is a choice inside it rather than a second button.
+                Menu {
+                    Button("Save Video") { save() }
+                    Button("Save as GIF (~\(model.gifEstimate))") { exportGIF() }
+                } label: {
+                    Text(model.isTrimmed ? "Save Trimmed" : "Save")
+                } primaryAction: {
+                    save()
+                }
+                .menuStyle(.button)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(model.isExporting)
+                .keyboardShortcut(.defaultAction)
 
-                // The estimate is shown before the click: a GIF of a long recording can be
-                // enormous, and there is no way to find out afterwards except by writing it.
-                Button("GIF · ~\(model.gifEstimate)") { exportGIF() }
-                    .buttonStyle(.bordered)
-                    .disabled(model.isExporting)
-
-                Button(model.isTrimmed ? "Save Trimmed" : "Save") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(model.isExporting)
-                    .keyboardShortcut(.defaultAction)
+                Button {
+                    onDiscard()
+                } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: Space.l, height: Space.l)
+                }
+                .buttonStyle(.accessoryBar)
+                .help("Close")
+                .keyboardShortcut(.cancelAction)
             }
         }
         .padding(Space.m)
@@ -304,10 +312,17 @@ public struct TrimView: View {
     }
 }
 
-/// The recording as a strip of frames, with a draggable handle at each end and a playhead.
+/// The recording as a strip of frames, with a bracket handle at each end and a playhead.
+///
+/// Every gesture reads the pointer's ABSOLUTE position in the strip's coordinate space. The first
+/// version added the drag's translation to a handle position recomputed from the model on every
+/// frame — so each frame re-added the whole distance moved so far, and a handle shot to the edge
+/// the moment it was touched. Reading where the pointer actually is cannot compound.
 struct FilmstripScrubber: View {
     @Bindable var model: TrimModel
-    private let height: CGFloat = 48
+    private let height: CGFloat = 56
+    private let handleWidth: CGFloat = Space.l
+    private static let space = "filmstrip"
 
     var body: some View {
         GeometryReader { geometry in
@@ -319,9 +334,9 @@ struct FilmstripScrubber: View {
             ZStack(alignment: .leading) {
                 strip(width: width)
                     .contentShape(Rectangle())
-                    // Click or drag anywhere on the strip to scrub.
+                    // Click or drag on the strip to scrub.
                     .gesture(
-                        DragGesture(minimumDistance: 0)
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
                             .onChanged { value in
                                 model.player.pause()
                                 model.seek(time(at: value.location.x, width: width))
@@ -337,42 +352,47 @@ struct FilmstripScrubber: View {
                     .offset(x: endX)
                     .allowsHitTesting(false)
 
-                // Selection frame.
+                // Bracket around the selection.
                 Radius.shape(Radius.sm)
-                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .strokeBorder(Color.accentColor, lineWidth: 3)
                     .frame(width: max(0, endX - startX), height: height)
                     .offset(x: startX)
                     .allowsHitTesting(false)
 
                 // Playhead.
-                Rectangle()
+                Capsule()
                     .fill(.white)
-                    .frame(width: 2, height: height + Space.s)
-                    .offset(x: playheadX - 1, y: 0)
+                    .frame(width: 3, height: height + Space.s)
+                    .offset(x: playheadX - 1.5)
                     .allowsHitTesting(false)
+                    .shadow(color: .black.opacity(0.5), radius: 1)
 
-                handle
-                    .offset(x: startX - Space.s / 2)
+                // Handles are fat and hang outside the selection, so they are easy to grab on a
+                // trackpad and never cover the first or last frame being kept.
+                handle(leading: true)
+                    .offset(x: startX - handleWidth)
                     .gesture(
-                        DragGesture(minimumDistance: 0)
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
                             .onChanged { value in
-                                model.setStart(time(at: startX + value.translation.width, width: width))
+                                model.setStart(time(at: value.location.x, width: width))
                             }
                     )
                     .help("Drag to set where the recording starts")
 
-                handle
-                    .offset(x: endX - Space.s / 2)
+                handle(leading: false)
+                    .offset(x: endX)
                     .gesture(
-                        DragGesture(minimumDistance: 0)
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
                             .onChanged { value in
-                                model.setEnd(time(at: endX + value.translation.width, width: width))
+                                model.setEnd(time(at: value.location.x, width: width))
                             }
                     )
                     .help("Drag to set where the recording ends")
             }
+            .coordinateSpace(name: Self.space)
         }
         .frame(height: height)
+        .padding(.horizontal, handleWidth)
     }
 
     private func time(at x: CGFloat, width: CGFloat) -> TimeInterval {
@@ -399,12 +419,23 @@ struct FilmstripScrubber: View {
         }
     }
 
-    private var handle: some View {
-        Capsule()
-            .fill(Color.accentColor)
-            .frame(width: Space.s, height: height + Space.s)
-            .overlay(Capsule().fill(.white.opacity(0.9)).frame(width: 2, height: Space.l))
-            .shadow(color: .black.opacity(0.4), radius: 2)
+    private func handle(leading: Bool) -> some View {
+        UnevenRoundedRectangle(
+            topLeadingRadius: leading ? Radius.sm : 0,
+            bottomLeadingRadius: leading ? Radius.sm : 0,
+            bottomTrailingRadius: leading ? 0 : Radius.sm,
+            topTrailingRadius: leading ? 0 : Radius.sm,
+            style: .continuous
+        )
+        .fill(Color.accentColor)
+        .frame(width: handleWidth, height: height)
+        .overlay(
+            Image(systemName: leading ? "chevron.left" : "chevron.right")
+                .font(TypeRamp.caption)
+                .fontWeight(.bold)
+                .foregroundStyle(.white)
+        )
+        .contentShape(Rectangle())
     }
 }
 
