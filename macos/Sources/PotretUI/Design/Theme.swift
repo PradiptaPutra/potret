@@ -101,18 +101,42 @@ public struct VisualEffect: NSViewRepresentable {
     }
 }
 
-extension View {
-    /// Standard treatment for a floating panel: material, squircle, hairline border.
-    public func potretSurface(
-        _ surface: Surface,
-        radius: CGFloat = Radius.lg,
-        blending: NSVisualEffectView.BlendingMode = .behindWindow
-    ) -> some View {
-        background(VisualEffect(surface, blending: blending))
+/// How vibrancy blends, overridable from the environment.
+///
+/// Shipping panels sample the desktop behind the window (`.behindWindow`). An offscreen render
+/// has nothing behind it, so the mockup renderer flips this to `.withinWindow` and puts a stand-in
+/// desktop in the same window — which means mockups show the real material rather than a flat
+/// approximation, and view code never has to know a mockup exists.
+private struct SurfaceBlendingKey: EnvironmentKey {
+    static let defaultValue: NSVisualEffectView.BlendingMode = .behindWindow
+}
+
+extension EnvironmentValues {
+    public var surfaceBlending: NSVisualEffectView.BlendingMode {
+        get { self[SurfaceBlendingKey.self] }
+        set { self[SurfaceBlendingKey.self] = newValue }
+    }
+}
+
+private struct SurfaceModifier: ViewModifier {
+    @Environment(\.surfaceBlending) private var blending
+    let surface: Surface
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(VisualEffect(surface, blending: blending))
             .clipShape(Radius.shape(radius))
             .overlay(
                 Radius.shape(radius)
                     .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
             )
+    }
+}
+
+extension View {
+    /// Standard treatment for a floating panel: material, squircle, hairline border.
+    public func potretSurface(_ surface: Surface, radius: CGFloat = Radius.lg) -> some View {
+        modifier(SurfaceModifier(surface: surface, radius: radius))
     }
 }

@@ -42,7 +42,10 @@ func renderPNG<Content: View>(
     )
     window.appearance = NSAppearance(named: appearance)
     window.backgroundColor = .clear
-    window.contentView = NSHostingView(rootView: view)
+    // Offscreen windows have nothing behind them, so vibrancy has to sample within.
+    window.contentView = NSHostingView(
+        rootView: view.environment(\.surfaceBlending, .withinWindow)
+    )
     window.contentView?.layoutSubtreeIfNeeded()
     window.displayIfNeeded()
 
@@ -95,30 +98,19 @@ guard let sample = NSImage(contentsOfFile: samplePath) else {
 let idle = PopupPreview(
     image: sample,
     pixelSize: CGSize(width: 2880, height: 1800),
-    progress: 0.62,
-    hovering: false
+    progress: 0.62
 )
-let hovered = PopupPreview(
+let confirming = PopupPreview(
     image: sample,
     pixelSize: CGSize(width: 2880, height: 1800),
     progress: 0.62,
-    hovering: true
+    flash: "Copied"
 )
 
-/// All the candidates on one backdrop, so they are compared against each other rather than
-/// remembered one file at a time.
-struct PopupContactSheet: View {
+/// The popup in both of its states, on a backdrop, so the material has something to sample.
+struct PopupSheet: View {
     let idle: PopupPreview
-    let hovered: PopupPreview
-
-    private func labelled(_ title: String, @ViewBuilder _ content: () -> some View) -> some View {
-        VStack(spacing: Space.s) {
-            content()
-            Text(title)
-                .font(TypeRamp.caption)
-                .foregroundStyle(.white.opacity(0.9))
-        }
-    }
+    let confirming: PopupPreview
 
     var body: some View {
         ZStack {
@@ -128,25 +120,23 @@ struct PopupContactSheet: View {
                 endPoint: .bottomTrailing
             )
             HStack(alignment: .top, spacing: Space.xl) {
-                labelled("A — persistent action bar") { CapturePopupBarVariant(preview: idle) }
-                labelled("B — hover reveal (at rest)") { CapturePopupHoverVariant(preview: idle) }
-                labelled("B — hovered") { CapturePopupHoverVariant(preview: hovered) }
-                labelled("C — trailing action rail") { CapturePopupRailVariant(preview: idle) }
+                CapturePopupView(preview: idle)
+                CapturePopupView(preview: confirming)
             }
             .padding(Space.xl)
         }
     }
 }
 
-let sheetCanvas = CGSize(width: 1220, height: 250)
+let sheetCanvas = CGSize(width: 620, height: 220)
 
 for (scheme, appearance) in [
     ("light", NSAppearance.Name.aqua),
     ("dark", NSAppearance.Name.darkAqua),
 ] {
     try renderPNG(
-        PopupContactSheet(idle: idle, hovered: hovered),
-        size: sheetCanvas, appearance: appearance, named: "popup-variants-\(scheme)"
+        PopupSheet(idle: idle, confirming: confirming),
+        size: sheetCanvas, appearance: appearance, named: "popup-\(scheme)"
     )
 }
 
