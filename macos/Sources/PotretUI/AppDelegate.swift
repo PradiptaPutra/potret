@@ -50,6 +50,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.ui.info("POTRET_SHOW_HISTORY set — opening the history panel")
                 coordinator.toggleHistory()
             }
+            if ProcessInfo.processInfo.environment["POTRET_SHOW_CORNER"] != nil {
+                Log.ui.info("POTRET_SHOW_CORNER set — opening the corner stack")
+                coordinator.showCornerStack()
+            }
             if ProcessInfo.processInfo.environment["POTRET_SHOW_SETTINGS"] != nil {
                 Log.ui.info("POTRET_SHOW_SETTINGS set — opening Settings")
                 coordinator.showSettings()

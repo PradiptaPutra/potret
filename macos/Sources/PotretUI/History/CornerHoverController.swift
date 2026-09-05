@@ -89,14 +89,18 @@ public final class CornerHoverController {
         }
     }
 
+    /// Force the stack open, for verification without a pointer.
+    public func showNow() { show() }
+
     private func show() {
         model.load(limit: Self.itemCount)
         // Nothing to show is not worth a panel. The Tauri version presented an empty 260×480
         // window in this case — an invisible but fully clickable rectangle over the corner.
         guard !model.items.isEmpty else { return }
 
-        let size = CGSize(width: 300, height: 320)
+        let size = CornerHoverView.panelSize(itemCount: model.items.count)
         let panel = existingListPanel(size: size)
+        panel.setContentSize(size)
         panel.setFrame(
             PanelPlacement.clamped(
                 PanelPlacement.bottomLeading(size: size),
@@ -123,6 +127,9 @@ public final class CornerHoverController {
             contentRect: NSRect(origin: .zero, size: size),
             level: .statusBar
         )
+        // The cards carry their own shadows; a panel shadow would outline a rectangle around a
+        // stack that is supposed to read as loose cards on the desktop.
+        panel.hasShadow = false
         listPanel = panel
         return panel
     }
@@ -150,48 +157,100 @@ public final class CornerHoverController {
     }
 }
 
-/// Compact list for the corner popup.
+/// Floating cards at the corner — no frame, no header, no background.
+///
+/// This is the shape the Tauri app shipped and the one CleanShot uses: the captures themselves
+/// stacked at the corner, newest nearest it, each carrying its own shadow. An earlier attempt here
+/// wrapped them in a bordered popover list, which read as a panel that happened to contain
+/// pictures rather than as the pictures themselves.
+///
+/// A fanned or cascading arrangement is deliberately absent — it was built once and removed after
+/// user feedback (issues #2/#3).
 struct CornerHoverView: View {
     @Bindable var model: HistoryModel
     let actions: HistoryActions
+    @State private var hovered: String?
+
+    static let cardWidth: CGFloat = 190
+    static let cardHeight: CGFloat = cardWidth * 10 / 16
+    static let spacing = Space.s
+    static let padding = Space.m
+
+    static func panelSize(itemCount: Int) -> CGSize {
+        CGSize(
+            width: cardWidth + padding * 2,
+            height: CGFloat(itemCount) * cardHeight
+                + CGFloat(max(0, itemCount - 1)) * spacing
+                + padding * 2
+        )
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Recent")
-                .font(TypeRamp.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, Space.m)
-                .padding(.top, Space.s)
-                .padding(.bottom, Space.xs)
-
-            ForEach(model.items) { item in
-                Button {
-                    actions.copy?(item)
-                } label: {
-                    HStack(spacing: Space.s) {
-                        if let image = model.thumbnail(for: item) {
-                            Image(nsImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: 56, height: 34)
-                                .clipShape(Radius.shape(Radius.sm))
-                        }
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.relativeTime).font(TypeRamp.caption)
-                            Text(item.dimensions)
-                                .font(TypeRamp.mono)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.accessoryBar)
-                .padding(.horizontal, Space.s)
+        VStack(alignment: .leading, spacing: Self.spacing) {
+            // Reversed so the newest card sits at the bottom of the stack, closest to the corner
+            // the pointer just came from.
+            ForEach(model.items.reversed()) { item in
+                card(for: item)
             }
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .potretSurface(.popover)
+        .padding(Self.padding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+    }
+
+    private func card(for item: HistoryItem) -> some View {
+        let isHovered = hovered == item.id
+        return ZStack(alignment: .topTrailing) {
+            Group {
+                if let image = model.thumbnail(for: item) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Rectangle().fill(.black.opacity(0.4))
+                }
+            }
+            .frame(width: Self.cardWidth, height: Self.cardHeight)
+
+            if isHovered {
+                HStack(spacing: Space.xs) {
+                    action("doc.on.doc", "Copy") { actions.copy?(item) }
+                    action("folder", "Show in Finder") { actions.reveal?(item) }
+                    action("trash", "Delete") { actions.delete?(item) }
+                }
+                .padding(Space.xs)
+            }
+        }
+        .clipShape(Radius.shape(Radius.md))
+        .overlay(
+            Radius.shape(Radius.md)
+                .strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
+        )
+        // Two shadows: a tight contact shadow keeps the card anchored to the desktop, a wide soft
+        // one gives it height. One shadow alone reads as either floating or flat.
+        .shadow(color: .black.opacity(isHovered ? 0.45 : 0.35),
+                radius: isHovered ? 18 : 12, y: isHovered ? 10 : 6)
+        .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+        .scaleEffect(isHovered ? 1.02 : 1)
+        .offset(y: isHovered ? -2 : 0)
+        .animation(Motion.quick, value: isHovered)
+        .onHover { hovered = $0 ? item.id : nil }
+        .help(item.relativeTime + " · " + item.dimensions)
+    }
+
+    private func action(
+        _ symbol: String,
+        _ help: String,
+        perform: @escaping () -> Void
+    ) -> some View {
+        Button(action: perform) {
+            Image(systemName: symbol)
+                .font(TypeRamp.caption)
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(.black.opacity(0.55), in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }

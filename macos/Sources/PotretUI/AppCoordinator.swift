@@ -57,6 +57,11 @@ public final class AppCoordinator {
         self.cornerHover = CornerHoverController(model: model, actions: actions)
     }
 
+    /// Force the corner stack open — verification only; the real trigger is the corner hot zone.
+    public func showCornerStack() {
+        cornerHover.showNow()
+    }
+
     /// Open Settings, creating it on first use.
     public func showSettings() {
         if settingsWindow == nil {
