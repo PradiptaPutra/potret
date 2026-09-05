@@ -47,9 +47,22 @@ public final class AppCoordinator {
         }
 
         hotKeys.onTrigger { [weak self] id in
+            Log.shortcuts.info("hotkey fired: \(id.rawValue, privacy: .public)")
             self?.handle(id)
         }
-        hotKeys.apply(combos)
+        let results = hotKeys.apply(combos)
+        for (id, result) in results {
+            switch result {
+            case .success:
+                Log.shortcuts.info(
+                    "registered \(id.rawValue, privacy: .public) as \(combos[id]?.displayString ?? "?", privacy: .public)"
+                )
+            case .failure(let error):
+                Log.shortcuts.error(
+                    "could NOT register \(id.rawValue, privacy: .public): \(error.message, privacy: .public)"
+                )
+            }
+        }
 
         // Retention runs at launch as well as after each save: the Tauri app kept every capture
         // forever while showing only the newest 50, so an upgrading user may arrive with a large
@@ -82,10 +95,16 @@ public final class AppCoordinator {
     }
 
     public func capture(_ mode: CaptureMode) {
-        guard Date().timeIntervalSince(lastCaptureAt) > Self.captureDebounce else { return }
+        Log.capture.info("capture requested: \(String(describing: mode), privacy: .public)")
+
+        guard Date().timeIntervalSince(lastCaptureAt) > Self.captureDebounce else {
+            Log.capture.info("ignored — within the \(Self.captureDebounce)s debounce")
+            return
+        }
         lastCaptureAt = Date()
 
         guard CapturePermission.isGranted else {
+            Log.capture.error("Screen Recording not granted for this bundle")
             presentPermissionAlert()
             return
         }
@@ -99,8 +118,12 @@ public final class AppCoordinator {
                 do {
                     guard let target = try await self.target(for: mode) else { return }
                     let captured = try await self.engine.capture(target)
+                    Log.capture.info(
+                        "captured \(Int(captured.pixelSize.width))x\(Int(captured.pixelSize.height))px"
+                    )
                     try await self.finish(captured)
                 } catch {
+                    Log.capture.error("capture failed: \(error.localizedDescription, privacy: .public)")
                     self.present(error: error)
                 }
             }
@@ -174,6 +197,7 @@ public final class AppCoordinator {
             Task { await self.save(captured) }
         }
 
+        Log.ui.info("presenting popup")
         popup.present(
             image: NSImage(cgImage: captured.cgImage, size: captured.pointSize),
             pixelSize: captured.pixelSize,

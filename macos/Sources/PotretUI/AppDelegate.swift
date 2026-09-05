@@ -31,6 +31,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { [weak self] in
             await coordinator.start()
             self?.statusItem?.refresh() // surface any shortcut that failed to register
+
+            // Headless trigger, for verifying the capture path without clicking a menu — there is
+            // no UI automation available without Xcode, so this is how the pipeline gets exercised
+            // from a script. Development builds only.
+            if ProcessInfo.processInfo.environment["POTRET_CAPTURE_ON_LAUNCH"] != nil {
+                Log.ui.info("POTRET_CAPTURE_ON_LAUNCH set — firing a fullscreen capture")
+                coordinator.capture(.fullscreen)
+            }
         }
     }
 

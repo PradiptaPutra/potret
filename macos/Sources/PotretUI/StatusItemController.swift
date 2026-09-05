@@ -62,7 +62,18 @@ public final class StatusItemController {
         menu.addItem(item)
     }
 
-    @objc private func captureArea() { coordinator.capture(.area) }
-    @objc private func captureWindow() { coordinator.capture(.window) }
-    @objc private func captureFullscreen() { coordinator.capture(.fullscreen) }
+    @objc private func captureArea() {
+        Log.ui.info("menu: Capture Area")
+        coordinator.capture(.area)
+    }
+
+    @objc private func captureWindow() {
+        Log.ui.info("menu: Capture Window")
+        coordinator.capture(.window)
+    }
+
+    @objc private func captureFullscreen() {
+        Log.ui.info("menu: Capture Screen")
+        coordinator.capture(.fullscreen)
+    }
 }
