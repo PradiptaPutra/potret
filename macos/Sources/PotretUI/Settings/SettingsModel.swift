@@ -94,6 +94,7 @@ public final class SettingsModel {
             filenameTemplate = config.filenameTemplate
             savePath = config.savePath
             shortcuts = LegacyShortcutMigration.migrate(config).combos
+            retentionLimit = config.retentionLimit
             permissionGranted = CapturePermission.isGranted
             launchAtLogin = LoginItem.isEnabled
             historyBytes = (try? historyStore.totalBytes()) ?? 0
@@ -146,9 +147,9 @@ public final class SettingsModel {
     }
 
     private func applyRetention() {
-        let policy = retentionLimit == 0
-            ? RetentionPolicy.unlimited
-            : RetentionPolicy(maximumItems: retentionLimit)
+        let limit = retentionLimit
+        write { $0.retentionLimit = limit }
+        let policy = limit <= 0 ? RetentionPolicy.unlimited : RetentionPolicy(maximumItems: limit)
         Task {
             _ = try? historyStore.prune(policy: policy)
             historyBytes = (try? historyStore.totalBytes()) ?? 0

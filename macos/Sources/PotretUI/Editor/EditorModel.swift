@@ -161,6 +161,11 @@ public final class EditorModel {
         }
     }
 
+    /// Anything the user would lose by closing without saving.
+    public var hasChanges: Bool {
+        !document.elements.isEmpty || document.cropRect != nil || document.background != nil
+    }
+
     public func style() -> AnnotationElement.Style {
         AnnotationElement.Style(color: color, lineWidth: lineWidth)
     }

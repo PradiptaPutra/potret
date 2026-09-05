@@ -56,6 +56,9 @@ public final class AppCoordinator {
 
         let model = HistoryModel(store: store)
         self.historyModel = model
+        // Its own model: the corner loads with a limit of five, and doing that on the model the
+        // home window and history panel share truncated their lists to five as well.
+        let cornerModel = HistoryModel(store: store)
 
         var actions = HistoryActions()
         actions.copy = { item in
@@ -67,10 +70,13 @@ public final class AppCoordinator {
         actions.reveal = { item in
             NSWorkspace.shared.activateFileViewerSelecting([item.imageURL])
         }
-        actions.delete = { [weak model] item in model?.delete(item) }
+        actions.delete = { [weak model, weak cornerModel] item in
+            model?.delete(item)
+            cornerModel?.load(limit: CornerHoverView.itemCount)
+        }
         actions.clearAll = { [weak model] in model?.clearAll() }
         self.historyPanel = HistoryPanelController(model: model, actions: actions)
-        self.cornerHover = CornerHoverController(model: model, actions: actions)
+        self.cornerHover = CornerHoverController(model: cornerModel, actions: actions)
 
         self.pinned = PinnedController { [weak self] image, size in
             self?.openEditor(source: image, pixelSize: size)
@@ -179,6 +185,14 @@ public final class AppCoordinator {
 
     /// Open the annotation editor on a captured image.
     public func openEditor(source: CGImage, pixelSize: CGSize) {
+        // One editor at a time. Replacing the controller while its window was still open orphaned
+        // that window — no delegate, never counted as closed — and the app kept its Dock icon for
+        // good. Bringing the existing one forward loses nothing.
+        if let editorWindow, editorWindow.isVisible {
+            editorWindow.show()
+            toast.show("Finish the current annotation first")
+            return
+        }
         let model = EditorModel(
             document: AnnotationDocument(sourceSize: pixelSize),
             source: source
@@ -198,8 +212,33 @@ public final class AppCoordinator {
         ) {
             EditorView(model: model)
         }
+        // The close button and Cmd-W used to discard the annotations silently — only Done saved.
+        editorWindow?.shouldClose = { [weak self] in
+            guard let self, let model = self.editorModel, model.hasChanges else { return true }
+            self.promptToSaveAnnotations(model)
+            return false
+        }
         editorWindow?.show()
         Log.ui.info("editor window shown")
+    }
+
+    private func promptToSaveAnnotations(_ model: EditorModel) {
+        guard let window = editorWindow?.window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Save your annotations?"
+        alert.informativeText = "Your changes will be saved to your folder and to the library."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        // A sheet on the editor itself, which is key and frontmost — unlike a modal alert from a
+        // background accessory, this one is guaranteed to be seen.
+        alert.beginSheetModal(for: window) { [weak self] response in
+            switch response {
+            case .alertFirstButtonReturn: model.finish()
+            case .alertSecondButtonReturn: self?.editorWindow?.closeWithoutPrompt()
+            default: break
+            }
+        }
     }
 
     private func finishEditing(_ image: CGImage) {
@@ -227,10 +266,11 @@ public final class AppCoordinator {
                 )
                 try data.write(to: url, options: .atomic)
                 Log.ui.info("annotated capture saved")
+                self.historyModel.load()
             } catch {
                 Log.ui.error("saving annotation failed: \(error.localizedDescription, privacy: .public)")
             }
-            self.editorWindow?.close()
+            self.editorWindow?.closeWithoutPrompt()
             self.editorWindow = nil
             self.editorModel = nil
         }
@@ -563,7 +603,7 @@ public final class AppCoordinator {
         // Retention runs at launch as well as after each save: the Tauri app kept every capture
         // forever while showing only the newest 50, so an upgrading user may arrive with a large
         // backlog to trim once.
-        _ = try? historyStore.prune(policy: RetentionPolicy())
+        _ = try? historyStore.prune(policy: config.retentionPolicy)
     }
 
     public func shutdown() {
@@ -718,7 +758,7 @@ public final class AppCoordinator {
             thumbnailData: thumbnail,
             pixelSize: captured.pixelSize
         )
-        _ = try? historyStore.prune(policy: RetentionPolicy())
+        _ = try? historyStore.prune(policy: cachedConfig.retentionPolicy)
 
         var actions = CapturePopupActions()
         actions.copy = { [weak self] in
@@ -745,7 +785,9 @@ public final class AppCoordinator {
         // trip through Save.
         actions.dragURL = { [weak self] in self?.stageForDrag(image: captured.cgImage) }
 
-        if historyPanel.isVisible { historyModel.load() }
+        // The home window and history panel share this model; a capture taken while either is
+        // open used to leave it stale until reopened.
+        historyModel.load()
 
         Log.ui.info("presenting popup")
         popup.present(

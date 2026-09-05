@@ -15,7 +15,11 @@ import SwiftUI
 /// "just needs" to activate, the whole class of problem returns.
 @MainActor
 public final class MainWindowController: NSObject, NSWindowDelegate {
-    private var window: NSWindow?
+    public private(set) var window: NSWindow?
+    /// Asked before the window closes from the close button or Cmd-W. Return false to keep it
+    /// open — the editor uses this to offer Save / Don't Save when there are annotations.
+    public var shouldClose: (() -> Bool)?
+    private var closingWithoutPrompt = false
     /// How many controller-owned windows are on screen. The policy flips back to accessory only
     /// when the LAST one closes — closing the editor used to flip it while the home window was
     /// still open, and an accessory app hides its regular windows, so the home window vanished
@@ -70,8 +74,22 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
         )
     }
 
+    public var isVisible: Bool { window?.isVisible ?? false }
+
     public func close() {
         window?.close()
+    }
+
+    /// Close without consulting `shouldClose` — after a save, or when discarding on purpose.
+    public func closeWithoutPrompt() {
+        closingWithoutPrompt = true
+        window?.close()
+        closingWithoutPrompt = false
+    }
+
+    public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if closingWithoutPrompt { return true }
+        return shouldClose?() ?? true
     }
 
     private func existingWindow() -> NSWindow {

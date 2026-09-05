@@ -17,6 +17,9 @@ public struct AppConfig: Codable, Equatable, Sendable {
     public var jpegQuality: Int
     public var filenameTemplate: String
     public var cornerPopupEnabled: Bool
+    /// How many captures to keep; 0 keeps everything. New to the native app — the Tauri build kept
+    /// everything forever — so it is absent from older files and defaults.
+    public var retentionLimit: Int
 
     public enum ImageFormat: String, Codable, Sendable, CaseIterable {
         case png
@@ -33,6 +36,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         case jpegQuality = "jpeg_quality"
         case filenameTemplate = "filename_template"
         case cornerPopupEnabled = "corner_popup_enabled"
+        case retentionLimit = "retention_limit"
     }
 
     // NOT Cmd+Shift+3/4/5: macOS owns those for its own screenshot tools and swallows the
@@ -48,7 +52,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         format: .png,
         jpegQuality: 90,
         filenameTemplate: FilenameTemplate.default.template,
-        cornerPopupEnabled: true
+        cornerPopupEnabled: true,
+        retentionLimit: 200
     )
 
     public init(
@@ -60,7 +65,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         format: ImageFormat,
         jpegQuality: Int,
         filenameTemplate: String,
-        cornerPopupEnabled: Bool
+        cornerPopupEnabled: Bool,
+        retentionLimit: Int = 200
     ) {
         self.shortcutArea = shortcutArea
         self.shortcutWindow = shortcutWindow
@@ -71,6 +77,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.jpegQuality = jpegQuality
         self.filenameTemplate = filenameTemplate
         self.cornerPopupEnabled = cornerPopupEnabled
+        self.retentionLimit = retentionLimit
     }
 
     public init(from decoder: any Decoder) throws {
@@ -91,6 +98,14 @@ public struct AppConfig: Codable, Equatable, Sendable {
         filenameTemplate = string(.filenameTemplate, fallback.filenameTemplate)
         cornerPopupEnabled = (try? container.decodeIfPresent(Bool.self, forKey: .cornerPopupEnabled))
             .flatMap { $0 } ?? fallback.cornerPopupEnabled
+        retentionLimit = (try? container.decodeIfPresent(Int.self, forKey: .retentionLimit))
+            .flatMap { $0 } ?? fallback.retentionLimit
+    }
+
+    /// The retention policy the user chose. This used to be hardcoded to 200 at launch and after
+    /// every capture, so the Settings control changed nothing that lasted past a relaunch.
+    public var retentionPolicy: RetentionPolicy {
+        retentionLimit <= 0 ? .unlimited : RetentionPolicy(maximumItems: retentionLimit)
     }
 
     /// Clamped so a hand-edited config cannot produce an encoder error at capture time.

@@ -78,6 +78,15 @@ struct AppConfigTests {
         #expect(config.clampedJPEGQuality == 1)
     }
 
+    @Test("Retention is read from the file, defaults to 200, and 0 means keep everything")
+    func retentionPersists() throws {
+        // The Settings control used to change nothing past a relaunch: the prune at launch and
+        // after each capture was hardcoded to 200.
+        #expect(try decode("{}").retentionLimit == 200)
+        #expect(try decode(#"{"retention_limit":50}"#).retentionPolicy.maximumItems == 50)
+        #expect(try decode(#"{"retention_limit":0}"#).retentionPolicy == .unlimited)
+    }
+
     @Test("Save directory has exactly one fallback")
     func saveDirectoryFallback() {
         // The Tauri app claimed "Default (App Support)" in Settings while writing to the Desktop.
