@@ -211,8 +211,10 @@ private struct HistoryRow: View {
         .contentShape(Rectangle())
         .background(hovering ? Color.primary.opacity(0.06) : .clear)
         .onHover { hovering = $0 }
-        .onTapGesture { actions.annotate?(item) }
+        // See CornerHoverController: .onDrag consumes the mouse-down, so the click has to be a
+        // simultaneous gesture rather than .onTapGesture.
         .onDrag { actions.dragProvider(for: item) }
+        .simultaneousGesture(TapGesture().onEnded { actions.annotate?(item) })
         .confirmationDialog("Delete this capture?", isPresented: $confirmingDelete) {
             Button("Delete", role: .destructive) { actions.delete?(item) }
             Button("Cancel", role: .cancel) {}

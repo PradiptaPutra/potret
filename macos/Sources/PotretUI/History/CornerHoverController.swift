@@ -248,6 +248,10 @@ struct CornerHoverView: View {
 
             if isHovered {
                 HStack(spacing: Space.xs) {
+                    // Annotate gets an explicit button as well as the click-through below.
+                    // A bare click is not discoverable, and on macOS it also competes with the
+                    // drag gesture on the same view.
+                    action("pencil.tip.crop.circle", "Annotate") { actions.annotate?(item) }
                     action("doc.on.doc", "Copy") { actions.copy?(item) }
                     action("folder", "Show in Finder") { actions.reveal?(item) }
                     action("trash", "Delete") { actions.delete?(item) }
@@ -269,10 +273,20 @@ struct CornerHoverView: View {
         .offset(y: isHovered ? -2 : 0)
         .animation(Motion.quick, value: isHovered)
         .onHover { hovered = $0 ? item.id : nil }
-        // Click opens the editor; dragging carries the file into any app that takes one —
-        // Finder, Slack, a chat composer, a mail draft.
-        .onTapGesture { actions.annotate?(item) }
+        // Dragging carries the file into any app that takes one; clicking opens the editor.
+        //
+        // The tap is a `simultaneousGesture`, not `.onTapGesture`. `.onDrag` installs a drag
+        // source that consumes the mouse-down, so a plain tap modifier on the same view never
+        // fires — which is why clicking a card did nothing. A simultaneous gesture is recognised
+        // alongside the drag, and TapGesture still requires the pointer to stay put, so dragging
+        // does not also count as a click.
         .onDrag { actions.dragProvider(for: item) }
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                Log.ui.info("corner card tapped")
+                actions.annotate?(item)
+            }
+        )
         .help("\(item.relativeTime) · \(item.dimensions) — click to annotate, or drag out")
     }
 

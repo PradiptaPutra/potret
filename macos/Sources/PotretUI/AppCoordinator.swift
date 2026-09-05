@@ -94,13 +94,37 @@ public final class AppCoordinator {
         historyActions = full
     }
 
+    /// Open the newest stored capture in the editor — the same path a card click takes.
+    public func editLatestForTesting() {
+        historyModel.load()
+        guard let item = historyModel.items.first else {
+            Log.ui.error("no history item to edit")
+            return
+        }
+        openEditor(for: item)
+    }
+
     /// Open a stored capture in the editor.
     private func openEditor(for item: HistoryItem) {
+        Log.ui.info("opening editor for \(item.id, privacy: .public)")
+        // A recording cannot be annotated; open it in the trimmer instead of failing silently.
+        if item.isRecording {
+            Log.ui.info("item is a recording — opening the trimmer")
+            openTrimmer(
+                for: Recording(
+                    url: item.imageURL,
+                    duration: item.duration ?? 0,
+                    pixelSize: item.pixelSize,
+                    fileSize: item.fileSize
+                )
+            )
+            return
+        }
         guard
             let image = NSImage(contentsOf: item.imageURL),
             let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
         else {
-            Log.ui.error("could not open capture for editing")
+            Log.ui.error("could not decode \(item.imageURL.lastPathComponent, privacy: .public)")
             return
         }
         historyPanel.hide()
