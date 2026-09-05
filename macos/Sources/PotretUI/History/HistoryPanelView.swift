@@ -23,6 +23,8 @@ public struct HistoryActions {
     /// The AppKit drag source for a capture. One mechanism for every surface: SwiftUI's .onDrag
     /// failed on the popup because view re-evaluation reset its gesture tracking, and the corner
     /// cards re-evaluate on every hover change — the same failure for the same reason.
+    // Main-actor because FileDragSource is an NSViewRepresentable, whose initialiser is.
+    @MainActor
     func dragSource(for item: HistoryItem, image: NSImage?, onClick: @escaping () -> Void) -> FileDragSource {
         FileDragSource(
             provideURL: { [self] in self.dragURL?(item) },
