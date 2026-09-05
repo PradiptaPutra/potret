@@ -51,6 +51,17 @@ public struct EditorView: View {
     // MARK: Toolbar
 
     private var toolbar: some View {
+        // Scrolls rather than clipping. Rendering the editor at its minimum width showed tool
+        // buttons simply vanishing — a fixed HStack drops what does not fit, with no indication
+        // that anything is missing.
+        ScrollView(.horizontal) {
+            toolbarContent
+        }
+        .scrollIndicators(.hidden)
+        .frame(height: 34)
+    }
+
+    private var toolbarContent: some View {
         HStack(spacing: Space.xs) {
             ForEach(EditorTool.allCases, id: \.self) { tool in
                 Button {

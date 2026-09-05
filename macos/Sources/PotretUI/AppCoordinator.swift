@@ -99,6 +99,7 @@ public final class AppCoordinator {
                 let displays = try await self.engine.displays()
                 guard let display = displays.first else { return }
                 let captured = try await self.engine.capture(.display(display.id))
+                Log.ui.info("captureAndEdit: captured, opening editor")
                 self.openEditor(source: captured.cgImage, pixelSize: captured.pixelSize)
             } catch {
                 Log.capture.error("captureAndEdit failed: \(error.localizedDescription, privacy: .public)")
@@ -119,10 +120,16 @@ public final class AppCoordinator {
         // previous capture's undo stack into the next. The Tauri editor keyed its React component
         // on the capture id for exactly this reason (issue #5, annotations bleeding between
         // screenshots).
-        editorWindow = MainWindowController(title: "Annotate") {
+        editorWindow = MainWindowController(
+            title: "Annotate",
+            // Big enough to show a capture at a useful size without immediately needing a resize.
+            defaultSize: NSSize(width: 1000, height: 700),
+            resizable: true
+        ) {
             EditorView(model: model)
         }
         editorWindow?.show()
+        Log.ui.info("editor window shown")
     }
 
     private func finishEditing(_ image: CGImage) {

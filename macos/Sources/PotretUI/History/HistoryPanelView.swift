@@ -1,6 +1,7 @@
 import AppKit
 import PotretCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// What a history row can do. Optional, so actions that belong to later phases simply do not
 /// appear rather than showing a button that apologises.
@@ -26,7 +27,45 @@ public struct HistoryActions {
         // underneath the drag it just started.
         dragBegan?()
         guard let url = dragURL?(item) else { return NSItemProvider() }
-        return NSItemProvider(contentsOf: url) ?? NSItemProvider()
+        return Self.imageProvider(for: url)
+    }
+
+    /// Advertise the drag as a PNG, in two forms.
+    ///
+    /// `NSItemProvider(contentsOf:)` registers the item as `public.file-url`, so a destination
+    /// that reads text — a chat composer, a web view — receives the string
+    /// "file:///var/folders/.../Screenshot.png" instead of a picture. Registering the PNG type
+    /// explicitly is what makes those destinations treat it as an image.
+    ///
+    /// Both a file and a data representation are registered because destinations differ: Finder
+    /// and Slack want a file on disk to reference, while web-based composers want the bytes. The
+    /// file representation is registered first, so a destination that can take either gets the
+    /// one that preserves the filename.
+    static func imageProvider(for url: URL) -> NSItemProvider {
+        let provider = NSItemProvider()
+        let type = UTType.png.identifier
+        provider.suggestedName = url.lastPathComponent
+
+        provider.registerFileRepresentation(
+            forTypeIdentifier: type,
+            fileOptions: [],
+            visibility: .all
+        ) { completion in
+            // `false` for coordination: the staged file is ours and already written, so the
+            // system may read it in place rather than making another copy.
+            completion(url, false, nil)
+            return nil
+        }
+
+        provider.registerDataRepresentation(
+            forTypeIdentifier: type,
+            visibility: .all
+        ) { completion in
+            completion(try? Data(contentsOf: url), nil)
+            return nil
+        }
+
+        return provider
     }
 }
 

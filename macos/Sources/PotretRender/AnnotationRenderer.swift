@@ -33,6 +33,11 @@ public final class AnnotationRenderer {
         context.saveGState()
         defer { context.restoreGState() }
 
+        // A capture is almost always larger than the canvas it is shown in, so it is drawn
+        // downscaled. CoreGraphics' default interpolation is visibly soft at those ratios —
+        // text in a screenshot of a screenshot turns to mush.
+        context.interpolationQuality = .high
+
         // CGContext is y-up; document space is y-down. Flip once here rather than negating every
         // coordinate downstream.
         context.translateBy(x: 0, y: targetHeight)
@@ -45,18 +50,32 @@ public final class AnnotationRenderer {
         context.translateBy(x: -visible.minX, y: -visible.minY)
         context.clip(to: visible)
 
-        context.draw(source, in: CGRect(origin: .zero, size: document.sourceSize))
+        drawUpright(source, size: document.sourceSize, in: context)
 
         // Effects composite as one cached image, so dragging an arrow across a pixelated region
         // does not recompute the pixelation. The Tauri editor re-ran a getImageData loop per 12px
         // block on every single shape mutation.
         if let effectsImage = effects.image(for: document, source: source) {
-            context.draw(effectsImage, in: CGRect(origin: .zero, size: document.sourceSize))
+            drawUpright(effectsImage, size: document.sourceSize, in: context)
         }
 
         for element in document.elements where !element.kind.isEffect {
             draw(element, in: context)
         }
+    }
+
+    /// Draw an image the right way up inside the y-down document space.
+    ///
+    /// `CGContext.draw` honours the current transform, and the context has been flipped so that
+    /// document coordinates read top-left origin. Drawing an image directly into that space
+    /// renders it vertically mirrored — so the flip is undone locally, for the image only. Getting
+    /// this wrong is invisible on a symmetrical test image and unmistakable on a screenshot.
+    private func drawUpright(_ image: CGImage, size: CGSize, in context: CGContext) {
+        context.saveGState()
+        context.translateBy(x: 0, y: size.height)
+        context.scaleBy(x: 1, y: -1)
+        context.draw(image, in: CGRect(origin: .zero, size: size))
+        context.restoreGState()
     }
 
     /// CoreText attribute keys, not AppKit's. `.font` and `.foregroundColor` are declared by

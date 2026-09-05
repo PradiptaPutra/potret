@@ -23,8 +23,35 @@ final class AnnotationCanvasView: NSView {
     private var movingElement: AnnotationElement?
     private var cropDraft: CGRect?
 
-    override var isFlipped: Bool { true }
+    // NOT flipped, deliberately. An NSView with isFlipped = true hands its CGContext a y-down
+    // CTM, and AnnotationRenderer applies its own y-down flip on top. The two cancel: the source
+    // image still draws correctly (CGContext.draw handles orientation itself) but every annotation
+    // renders vertically mirrored, while the mouse is mapped in y-down space — so shapes appear
+    // reflected about the middle of the canvas instead of under the cursor. Keeping the view
+    // y-up leaves the renderer as the single place that defines document orientation.
+    override var isFlipped: Bool { false }
     override var acceptsFirstResponder: Bool { true }
+
+    /// Draw at the display's real pixel density.
+    ///
+    /// This view lives inside an NSHostingView, so it is layer-backed. A layer whose
+    /// contentsScale is left at 1 renders at half resolution on a Retina display, which is
+    /// exactly what a blurry screenshot-of-a-screenshot looks like.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateContentsScale()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateContentsScale()
+    }
+
+    private func updateContentsScale() {
+        guard let scale = window?.backingScaleFactor else { return }
+        layer?.contentsScale = scale
+        needsDisplay = true
+    }
 
     // MARK: Geometry
 
@@ -41,10 +68,24 @@ final class AnnotationCanvasView: NSView {
 
     private func documentPoint(_ event: NSEvent) -> CGPoint {
         let inView = convert(event.locationInWindow, from: nil)
+        // The view is y-up; document space is y-down, matching image pixels. Flip before mapping,
+        // or the pointer and the ink disagree about which way is down.
+        let yDown = CGPoint(x: inView.x, y: bounds.height - inView.y)
         let visible = model?.document.visibleRect ?? .zero
-        let point = transform.toDocument(inView)
-        // Transform maps into the visible (cropped) region; elements live in full document space.
+        let point = transform.toDocument(yDown)
+        // The transform maps into the visible (cropped) region; elements live in full document
+        // space, so shift by the crop origin.
         return CGPoint(x: point.x + visible.minX, y: point.y + visible.minY)
+    }
+
+    /// Run `body` with the context flipped to document orientation, so chrome drawn from
+    /// document-derived rects lines up with the ink the renderer produced.
+    private func inDocumentSpace(_ context: CGContext, _ body: () -> Void) {
+        context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
+        body()
+        context.restoreGState()
     }
 
     // MARK: Drawing
@@ -94,15 +135,15 @@ final class AnnotationCanvasView: NSView {
     private func drawSelectionChrome(in context: CGContext, model: EditorModel) {
         guard !model.document.selection.isEmpty else { return }
         let visible = model.document.visibleRect
-        context.saveGState()
-        context.setStrokeColor(NSColor.controlAccentColor.cgColor)
-        context.setLineWidth(1)
-        context.setLineDash(phase: 0, lengths: [4, 3])
-        for element in model.document.selectedElements {
-            let box = element.boundingBox.offsetBy(dx: -visible.minX, dy: -visible.minY)
-            context.stroke(transform.toView(box).insetBy(dx: -3, dy: -3))
+        inDocumentSpace(context) {
+            context.setStrokeColor(NSColor.controlAccentColor.cgColor)
+            context.setLineWidth(1)
+            context.setLineDash(phase: 0, lengths: [4, 3])
+            for element in model.document.selectedElements {
+                let box = element.boundingBox.offsetBy(dx: -visible.minX, dy: -visible.minY)
+                context.stroke(transform.toView(box).insetBy(dx: -3, dy: -3))
+            }
         }
-        context.restoreGState()
     }
 
     /// Crop chrome, with handles that are real.
@@ -116,27 +157,27 @@ final class AnnotationCanvasView: NSView {
         let rect = cropDraft ?? model.document.cropRect ?? CGRect(origin: .zero, size: model.document.sourceSize)
         let viewRect = transform.toView(rect.offsetBy(dx: -visible.minX, dy: -visible.minY))
 
-        context.saveGState()
-        context.setFillColor(NSColor.black.withAlphaComponent(0.45).cgColor)
-        let path = CGMutablePath()
-        path.addRect(bounds)
-        path.addRect(viewRect)
-        context.addPath(path)
-        context.fillPath(using: .evenOdd)
+        inDocumentSpace(context) {
+            context.setFillColor(NSColor.black.withAlphaComponent(0.45).cgColor)
+            let path = CGMutablePath()
+            path.addRect(CGRect(origin: .zero, size: bounds.size))
+            path.addRect(viewRect)
+            context.addPath(path)
+            context.fillPath(using: .evenOdd)
 
-        context.setStrokeColor(NSColor.white.cgColor)
-        context.setLineWidth(1)
-        context.stroke(viewRect)
+            context.setStrokeColor(NSColor.white.cgColor)
+            context.setLineWidth(1)
+            context.stroke(viewRect)
 
-        for handle in CropHandle.allCases {
-            let point = handle.position(in: viewRect)
-            let box = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
-            context.setFillColor(NSColor.white.cgColor)
-            context.fillEllipse(in: box)
-            context.setStrokeColor(NSColor.black.withAlphaComponent(0.4).cgColor)
-            context.strokeEllipse(in: box)
+            for handle in CropHandle.allCases {
+                let point = handle.position(in: viewRect)
+                let box = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
+                context.setFillColor(NSColor.white.cgColor)
+                context.fillEllipse(in: box)
+                context.setStrokeColor(NSColor.black.withAlphaComponent(0.4).cgColor)
+                context.strokeEllipse(in: box)
+            }
         }
-        context.restoreGState()
     }
 
     // MARK: Mouse

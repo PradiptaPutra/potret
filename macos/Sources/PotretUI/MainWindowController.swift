@@ -1,4 +1,5 @@
 import AppKit
+import PotretCore
 import SwiftUI
 
 /// The app's only real window, and the only place `NSApp.activate()` is allowed.
@@ -16,10 +17,24 @@ import SwiftUI
 public final class MainWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private let title: String
+    private let defaultSize: NSSize
+    private let resizable: Bool
     private let content: () -> AnyView
 
-    public init(title: String, content: @escaping () -> some View) {
+    /// - Parameters:
+    ///   - defaultSize: initial content size. Settings is a fixed form; the editor needs room for
+    ///     a full-resolution capture, and one hardcoded size cannot serve both — the editor was
+    ///     opening at Settings' 460pt width, ignoring its own 720pt minimum.
+    ///   - resizable: an editor must be; a settings form need not be.
+    public init(
+        title: String,
+        defaultSize: NSSize = NSSize(width: 460, height: 560),
+        resizable: Bool = false,
+        content: @escaping () -> some View
+    ) {
         self.title = title
+        self.defaultSize = defaultSize
+        self.resizable = resizable
         self.content = { AnyView(content()) }
         super.init()
     }
@@ -31,6 +46,9 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
         window.center()
+        Log.ui.info(
+            "window '\(self.title, privacy: .public)' frame=\(NSStringFromRect(window.frame), privacy: .public) visible=\(window.isVisible)"
+        )
     }
 
     public func close() {
@@ -39,9 +57,11 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
 
     private func existingWindow() -> NSWindow {
         if let window { return window }
+        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
+        if resizable { style.insert(.resizable) }
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 560),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(origin: .zero, size: defaultSize),
+            styleMask: style,
             backing: .buffered,
             defer: false
         )

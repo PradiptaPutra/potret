@@ -59,6 +59,39 @@ struct RenderGoldenTests {
 
     // MARK: Basics
 
+    /// A source whose top half is red and bottom half is blue, so orientation is testable.
+    private func twoToneSource(width: Int = 100, height: Int = 100) throws -> CGImage {
+        let context = try #require(
+            CGContext(
+                data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        // CGContext is y-up, so the upper half of the finished image is the HIGHER y range.
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: height / 2, width: width, height: height / 2))
+        context.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height / 2))
+        return try #require(context.makeImage())
+    }
+
+    @Test("The source image is not vertically mirrored")
+    func sourceOrientationIsUpright() throws {
+        // The renderer flips the context so document space reads top-left origin, and
+        // CGContext.draw honours that flip — so an image drawn without a counter-flip comes out
+        // upside down. Invisible on a symmetrical test image, unmistakable on a screenshot.
+        let bitmap = try render(
+            AnnotationDocument(sourceSize: CGSize(width: 100, height: 100)),
+            source: try twoToneSource()
+        )
+        // Document y = 10 is near the top, which must be the red half.
+        let top = bitmap.rgb(atX: 50, y: 10)
+        let bottom = bitmap.rgb(atX: 50, y: 90)
+        #expect(top.r > 200 && top.b < 60, "top of the image should be red, got \(top)")
+        #expect(bottom.b > 200 && bottom.r < 60, "bottom should be blue, got \(bottom)")
+    }
+
     @Test("An empty document renders the source unchanged")
     func emptyDocumentIsPassThrough() throws {
         let image = try source()
@@ -219,12 +252,17 @@ private struct Bitmap {
         )
     }
 
-    /// Document space is y-down; the bitmap is y-up.
+    /// A CGBitmapContext stores its rows top-first, and document space is also top-down, so the
+    /// row index IS the document y. (The context's *drawing* origin is bottom-left, which is what
+    /// makes this look like it should need a flip — it does not.)
     private func components(x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
-        let flipped = height - 1 - y
-        let index = flipped * bytesPerRow + x * 4
+        let index = y * bytesPerRow + x * 4
         guard index + 2 < pixels.count else { return (0, 0, 0) }
         return (pixels[index], pixels[index + 1], pixels[index + 2])
+    }
+
+    func rgb(atX x: Int, y: Int) -> (r: UInt8, g: UInt8, b: UInt8) {
+        components(x: x, y: y)
     }
 
     func isWhite(atX x: Int, y: Int) -> Bool {

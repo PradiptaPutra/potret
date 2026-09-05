@@ -1,4 +1,5 @@
 import AppKit
+import PotretCore
 import PotretUI
 import SwiftUI
 
@@ -139,6 +140,67 @@ for (scheme, appearance) in [
         size: sheetCanvas, appearance: appearance, named: "popup-\(scheme)"
     )
 }
+
+/// Editor with a marker at a known document position.
+///
+/// Document space is y-down, so a rect at y = 0 must appear at the TOP of the canvas. If the
+/// renderer and the view disagree about orientation it lands at the bottom instead — which is
+/// exactly the double-flip bug this scene exists to catch.
+@MainActor
+func renderEditorOrientation() throws {
+    let width = 400, height = 300
+    guard let context = CGContext(
+        data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(),
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return }
+    context.setFillColor(CGColor(red: 0.16, green: 0.17, blue: 0.20, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    guard let source = context.makeImage() else { return }
+    _ = source
+
+    var document = AnnotationDocument(sourceSize: CGSize(width: width, height: height))
+    let style = AnnotationElement.Style(color: AnnotationPalette.red, lineWidth: 6)
+    // Marker hugging the TOP-LEFT of the document.
+    document.elements = [
+        AnnotationElement(kind: .rectangle(CGRect(x: 10, y: 10, width: 120, height: 60)), style: style),
+        AnnotationElement(
+            kind: .arrow(from: CGPoint(x: 20, y: 90), to: CGPoint(x: 200, y: 250)),
+            style: AnnotationElement.Style(color: AnnotationPalette.green, lineWidth: 6)
+        ),
+        AnnotationElement(
+            kind: .text(.init(string: "TOP", origin: CGPoint(x: 150, y: 16), fontSize: 34)),
+            style: AnnotationElement.Style(color: AnnotationPalette.yellow, lineWidth: 3)
+        ),
+    ]
+
+    // Use a real screenshot rather than a flat fill, so the render shows whether downscaled
+    // detail survives — which is what "blurry in the editor" was about.
+    guard
+        let realSource = sample.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    else { return }
+    document = AnnotationDocument(
+        sourceSize: CGSize(width: realSource.width, height: realSource.height)
+    )
+    document.elements = [
+        AnnotationElement(
+            kind: .rectangle(CGRect(x: 40, y: 40, width: 400, height: 200)), style: style
+        ),
+        AnnotationElement(
+            kind: .text(.init(string: "TOP-LEFT", origin: CGPoint(x: 460, y: 48), fontSize: 64)),
+            style: AnnotationElement.Style(color: AnnotationPalette.yellow, lineWidth: 3)
+        ),
+    ]
+
+    let model = EditorModel(document: document, source: realSource) { _ in }
+    try renderPNG(
+        EditorView(model: model),
+        size: CGSize(width: 760, height: 560), appearance: .darkAqua,
+        named: "editor-orientation"
+    )
+}
+
+try renderEditorOrientation()
 
 // Tray glyph, at the size AppKit asks for.
 try renderPNG(
