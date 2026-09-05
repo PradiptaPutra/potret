@@ -118,7 +118,9 @@ public struct TrimView: View {
             .padding(Space.m)
         }
         .frame(minWidth: 640, minHeight: 460)
-        .onAppear { model.preview(0) }
+        // Start playing at once: a still frame with a Play button somewhere below it read as
+        // "the preview is broken". Seeing it move is the review.
+        .onAppear { model.playTrimmed() }
     }
 
     private var handles: some View {
@@ -126,6 +128,10 @@ public struct TrimView: View {
             HStack {
                 Text("Trim")
                     .font(TypeRamp.heading)
+                Text("Drag Start and End to cut the recording down. It is already in your library; saving copies it to your folder.")
+                    .font(TypeRamp.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
                 Spacer()
                 Text("\(DurationFormat.clock(model.trimmedDuration)) of \(DurationFormat.clock(model.duration))")
                     .font(TypeRamp.mono)
@@ -182,7 +188,7 @@ public struct TrimView: View {
 
     private var footer: some View {
         HStack(spacing: Space.s) {
-            Button("Play", systemImage: "play.fill") { model.playTrimmed() }
+            Button("Play Selection", systemImage: "play.fill") { model.playTrimmed() }
                 .buttonStyle(.bordered)
 
             if let status = model.status {
@@ -193,16 +199,18 @@ public struct TrimView: View {
 
             Spacer()
 
-            Button("Discard", role: .destructive) { onDiscard() }
+            // "Close", not "Discard": the recording is already stored, and Discard read as if
+            // closing the window would delete it.
+            Button("Close") { onDiscard() }
                 .buttonStyle(.bordered)
 
             // The estimate is shown before the click, because a GIF of a long recording can be
             // enormous and there is no way to find out afterwards except by writing it.
-            Button("GIF · ~\(model.gifEstimate)") { exportGIF() }
+            Button("Save as GIF · ~\(model.gifEstimate)") { exportGIF() }
                 .buttonStyle(.bordered)
                 .disabled(model.isExporting)
 
-            Button(model.isTrimmed ? "Save Trimmed" : "Save") { save() }
+            Button(model.isTrimmed ? "Save Trimmed Video" : "Save Video") { save() }
                 .buttonStyle(.borderedProminent)
                 .disabled(model.isExporting)
         }

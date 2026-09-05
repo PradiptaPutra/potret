@@ -18,6 +18,8 @@ public struct CapturePopupActions {
     public var dragURL: (() -> URL?)?
     /// Fired when a drag starts, so the auto-dismiss countdown can be held.
     public var dragBegan: (() -> Void)?
+    /// Fired when the drag ends; `true` if something accepted the drop.
+    public var dragEnded: ((Bool) -> Void)?
 
     public init() {}
 }
@@ -118,7 +120,8 @@ public struct CapturePopupView: View {
                         dragImage: preview.image,
                         // Hold the countdown: a drag started at second four must not have its
                         // source dismissed mid-gesture.
-                        onBegan: { actions.dragBegan?() }
+                        onBegan: { actions.dragBegan?() },
+                        onEnded: { accepted in actions.dragEnded?(accepted) }
                     )
                 )
 

@@ -83,9 +83,13 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
             }
             filter = SCContentFilter(desktopIndependentWindow: window)
             let scale = content.displays.first.map(Self.scaleFactor(for:)) ?? 2
+            // Window frames are routinely odd-sized (a browser at 1237x811 is typical), and H.264
+            // requires even dimensions — the writer accepts every frame and then fails at finish.
+            // The region path already rounded; this one did not, which is why recording a window
+            // failed where recording a display worked.
             size = CGSize(
-                width: (window.frame.width * scale).rounded(),
-                height: (window.frame.height * scale).rounded()
+                width: ((window.frame.width * scale) / 2).rounded() * 2,
+                height: ((window.frame.height * scale) / 2).rounded() * 2
             )
 
         case .region(let globalRect, let displayID):
@@ -138,8 +142,11 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
             configuration.channelCount = 2
         }
 
-        try prepareWriter(size: size)
-
+        // The writer is NOT created here. It is created on the first delivered frame, sized from
+        // that frame's pixel buffer. Declaring the size up front from the window's frame produced
+        // frames the encoder rejected (-12142, kVTParameterErr) because for window capture the
+        // delivered buffer does not match the requested size exactly. Sizing from what actually
+        // arrives cannot mismatch.
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: writerQueue)
         if settings.capturesSystemAudio {
@@ -195,6 +202,12 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
         await writer.finishWriting()
 
         if let error = writer.error {
+            // "The operation could not be completed" on its own is useless; the NSError carries
+            // the code and usually an underlying error that says what actually went wrong.
+            let nsError = error as NSError
+            Log.capture.error(
+                "writer failed: \(nsError.domain, privacy: .public) \(nsError.code) \(String(describing: nsError.userInfo), privacy: .public)"
+            )
             throw RecordingError.writerFailed(error)
         }
         guard frameCount > 0 else { throw RecordingError.noFramesCaptured }
@@ -215,9 +228,17 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
 
     // MARK: Writer
 
-    private func prepareWriter(size: CGSize) throws {
+    private func prepareWriter(size rawSize: CGSize) throws {
         try? FileManager.default.removeItem(at: outputURL)
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+
+        // H.264 needs even dimensions. The encoder scales a buffer that is off by one pixel,
+        // which is invisible; it refuses an odd declared size outright.
+        let size = CGSize(
+            width: (rawSize.width / 2).rounded(.down) * 2,
+            height: (rawSize.height / 2).rounded(.down) * 2
+        )
+        pixelSize = size
 
         let video = AVAssetWriterInput(
             mediaType: .video,
@@ -225,6 +246,7 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
                 AVVideoCodecKey: AVVideoCodecType.h264,
                 AVVideoWidthKey: Int(size.width),
                 AVVideoHeightKey: Int(size.height),
+                AVVideoScalingModeKey: AVVideoScalingModeResizeAspectFill,
                 AVVideoCompressionPropertiesKey: [
                     AVVideoAverageBitRateKey: settings.bitrate(for: size),
                     AVVideoExpectedSourceFrameRateKey: settings.frameRate,
@@ -273,6 +295,25 @@ extension RecordingSession: SCStreamOutput, SCStreamDelegate {
         of type: SCStreamOutputType
     ) {
         guard isRecording, !isPaused, sampleBuffer.isValid else { return }
+
+        // First usable video frame: build the writer to match it exactly.
+        if writer == nil {
+            guard type == .screen, isComplete(sampleBuffer),
+                  let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+            else { return }
+            let actual = CGSize(
+                width: CVPixelBufferGetWidth(pixelBuffer),
+                height: CVPixelBufferGetHeight(pixelBuffer)
+            )
+            Log.capture.info("first frame \(Int(actual.width))x\(Int(actual.height))px")
+            do {
+                try prepareWriter(size: actual)
+            } catch {
+                Log.capture.error("writer setup failed: \(error.localizedDescription, privacy: .public)")
+                isRecording = false
+                return
+            }
+        }
         guard let writer, writer.status == .writing || writer.status == .unknown else { return }
 
         switch type {

@@ -66,7 +66,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 default: .fullscreen
                 }
                 Log.ui.info("POTRET_RECORD_SECONDS=\(seconds, privacy: .public) mode=\(requested, privacy: .public)")
-                if let region = ProcessInfo.processInfo.environment["POTRET_RECORD_REGION"] {
+                if requested.lowercased() == "window",
+                   ProcessInfo.processInfo.environment["POTRET_RECORD_REGION"] == nil {
+                    coordinator.recordFrontWindowForTesting()
+                } else if let region = ProcessInfo.processInfo.environment["POTRET_RECORD_REGION"] {
                     let parts = region.split(separator: ",").compactMap { Double($0) }
                     if parts.count == 4 {
                         coordinator.recordRegionForTesting(

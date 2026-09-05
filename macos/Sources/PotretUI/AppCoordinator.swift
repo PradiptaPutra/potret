@@ -315,6 +315,29 @@ public final class AppCoordinator {
         }
     }
 
+    /// Record the front-most window without the picker — isolates the window pipeline from the
+    /// overlay interaction when diagnosing.
+    public func recordFrontWindowForTesting() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let windows = try await self.engine.windows()
+                // A real app window, not Finder's desktop layer: that is what a user picks.
+                guard let front = windows.first(where: {
+                    !$0.title.isEmpty && $0.frame.width > 400 && $0.frame.height > 300
+                }) ?? windows.first else {
+                    Log.capture.error("test window record: no windows")
+                    return
+                }
+                Log.capture.info("test window record: \(front.owningApplication, privacy: .public) \(front.id)")
+                await self.recorder.start(target: .window(front.id), settings: self.recordingSettings)
+                self.onRecordingStateChanged?()
+            } catch {
+                self.present(error: error)
+            }
+        }
+    }
+
     /// Record a fixed region without the selector — isolates the region pipeline from the
     /// overlay interaction when diagnosing.
     public func recordRegionForTesting(_ rect: CGRect) {

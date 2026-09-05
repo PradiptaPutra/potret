@@ -16,7 +16,6 @@ public final class CornerHoverController {
     /// Leaving is debounced so crossing the gap between hot zone and panel does not close it.
     private static let closeDelay: Duration = .milliseconds(260)
     private static let hotZone: CGFloat = 4
-    private static let itemCount = 5
 
     private var hotPanel: OverlayPanel?
     private var listPanel: OverlayPanel?
@@ -52,7 +51,30 @@ public final class CornerHoverController {
             self.closeTask?.cancel()
             self.dragEndWatchdog()
         }
+        // Deleting shrinks the stack, so the panel has to shrink with it. Left as it was, the
+        // panel kept its old height with the cards re-laid out inside it — the "broken after
+        // delete" state. And the shared model reloads without a limit, so the view must cap what
+        // it shows itself.
+        let delete = actions.delete
+        actions.delete = { [weak self] item in
+            delete?(item)
+            self?.relayoutAfterChange()
+        }
         self.actions = actions
+    }
+
+    private func relayoutAfterChange() {
+        guard let listPanel, listPanel.isVisible else { return }
+        let count = min(model.items.count, CornerHoverView.itemCount)
+        guard count > 0 else {
+            hide()
+            return
+        }
+        let size = CornerHoverView.panelSize(itemCount: count)
+        listPanel.setFrame(
+            PanelPlacement.clamped(PanelPlacement.bottomLeading(size: size), on: NSScreen.main),
+            display: true
+        )
     }
 
     /// A drag ends outside our control — there is no completion callback on the SwiftUI path — so
@@ -128,12 +150,14 @@ public final class CornerHoverController {
     public func showNow() { show() }
 
     private func show() {
-        model.load(limit: Self.itemCount)
+        model.load(limit: CornerHoverView.itemCount)
         // Nothing to show is not worth a panel. The Tauri version presented an empty 260×480
         // window in this case — an invisible but fully clickable rectangle over the corner.
         guard !model.items.isEmpty else { return }
 
-        let size = CornerHoverView.panelSize(itemCount: model.items.count)
+        let size = CornerHoverView.panelSize(
+            itemCount: min(model.items.count, CornerHoverView.itemCount)
+        )
         let panel = existingListPanel(size: size)
         panel.setContentSize(size)
         panel.setFrame(
@@ -208,6 +232,7 @@ struct CornerHoverView: View {
     /// Pointer is over a card's action buttons; a click there must not also open the capture.
     @State private var overActions = false
 
+    static let itemCount = 5
     static let cardWidth: CGFloat = 190
     static let cardHeight: CGFloat = cardWidth * 10 / 16
     static let spacing = Space.s
@@ -226,7 +251,7 @@ struct CornerHoverView: View {
         VStack(alignment: .leading, spacing: Self.spacing) {
             // Reversed so the newest card sits at the bottom of the stack, closest to the corner
             // the pointer just came from.
-            ForEach(model.items.reversed()) { item in
+            ForEach(model.items.prefix(Self.itemCount).reversed()) { item in
                 card(for: item)
             }
         }

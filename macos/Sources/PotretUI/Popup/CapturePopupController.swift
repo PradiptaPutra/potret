@@ -46,6 +46,12 @@ public final class CapturePopupController {
         var actions = actions
         actions.dismiss = { [weak self] in self?.dismiss() }
         actions.dragBegan = { [weak self] in self?.holdForDrag() }
+        // Dropped somewhere: the capture has gone where it was going, so the popup is done. Not
+        // dropped: release the hold and let the countdown resume.
+        actions.dragEnded = { [weak self] accepted in
+            self?.dragging = false
+            if accepted { self?.dismiss() }
+        }
         state.actions = actions
         state.preview = PopupPreview(image: image, pixelSize: pixelSize, progress: 1)
         remaining = Self.lifetime

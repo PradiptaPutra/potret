@@ -16,6 +16,12 @@ import SwiftUI
 @MainActor
 public final class MainWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
+    /// How many controller-owned windows are on screen. The policy flips back to accessory only
+    /// when the LAST one closes — closing the editor used to flip it while the home window was
+    /// still open, and an accessory app hides its regular windows, so the home window vanished
+    /// along with the editor.
+    private static var visibleWindows = 0
+    private var counted = false
     private let title: String
     private let defaultSize: NSSize
     private let resizable: Bool
@@ -43,9 +49,22 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
         let window = existingWindow()
         // Regular for as long as a real window is open, so it can be Cmd-Tabbed to and typed in.
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate()
-        window.makeKeyAndOrderFront(nil)
+        if !counted {
+            counted = true
+            Self.visibleWindows += 1
+        }
         window.center()
+        // Two things conspired to put every window behind whatever the user was looking at.
+        // The policy change from accessory to regular takes effect a runloop turn later, so an
+        // activate() issued in the same turn applied to an app that was still an accessory. And
+        // on macOS 14 plain activate() is cooperative — it will not bring an app forward unless
+        // it is already the front app — which is precisely the state a menu-bar app is never in.
+        // So: order the window front regardless, then on the next turn activate ignoring others.
+        window.orderFrontRegardless()
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
         Log.ui.info(
             "window '\(self.title, privacy: .public)' frame=\(NSStringFromRect(window.frame), privacy: .public) visible=\(window.isVisible)"
         )
@@ -76,8 +95,14 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     public func windowWillClose(_ notification: Notification) {
-        // Back to an accessory the moment the last real window goes away, or the app keeps a Dock
-        // tile and a menu bar it has no use for.
-        NSApp.setActivationPolicy(.accessory)
+        if counted {
+            counted = false
+            Self.visibleWindows = max(0, Self.visibleWindows - 1)
+        }
+        // Back to an accessory only when the last real window goes away — otherwise the app
+        // keeps a Dock tile and a menu bar it has no use for.
+        if Self.visibleWindows == 0 {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 }

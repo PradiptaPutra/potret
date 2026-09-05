@@ -99,6 +99,13 @@ public struct ScreenCaptureKitEngine: CaptureEngine {
         let me = getpid()
         return content.windows.compactMap { window in
             guard let app = window.owningApplication, app.processID != me else { return nil }
+            // Only ordinary app windows. The Dock, the menu bar, Control Center, the desktop and
+            // WindowManager all publish full-screen layers at higher window levels; listed as
+            // candidates they win every hit-test in the picker (they are on top and cover the
+            // display), so whichever window the user clicked, they got the Dock's layer — which
+            // captures as nothing and records zero frames.
+            guard window.windowLayer == 0 else { return nil }
+            guard !Self.systemBundleIDs.contains(app.bundleIdentifier) else { return nil }
             // Menu-bar extras and other 1pt chrome are not things a user means to capture.
             guard window.frame.width > 40, window.frame.height > 40 else { return nil }
             return WindowInfo(
@@ -109,6 +116,16 @@ public struct ScreenCaptureKitEngine: CaptureEngine {
             )
         }
     }
+
+    /// Apps whose windows are system chrome rather than content.
+    private static let systemBundleIDs: Set<String> = [
+        "com.apple.dock",
+        "com.apple.WindowManager",
+        "com.apple.controlcenter",
+        "com.apple.notificationcenterui",
+        "com.apple.wallpaper.agent",
+        "com.apple.Spotlight",
+    ]
 
     /// SCDisplay reports its size in points; CGDisplayMode reports pixels. Their ratio is the
     /// backing scale, and there is no direct `scaleFactor` on SCDisplay to ask for it.

@@ -20,6 +20,8 @@ struct FileDragSource: NSViewRepresentable {
     var onBegan: (() -> Void)? = nil
     /// A click that did not become a drag.
     var onClick: (() -> Void)? = nil
+    /// The drag finished; `true` when a destination accepted it.
+    var onEnded: ((Bool) -> Void)? = nil
 
     func makeNSView(context: Context) -> DragSourceView {
         let view = DragSourceView()
@@ -36,6 +38,7 @@ struct FileDragSource: NSViewRepresentable {
         view.dragImage = dragImage
         view.onBegan = onBegan
         view.onClick = onClick
+        view.onEnded = onEnded
     }
 
     final class DragSourceView: NSView, NSDraggingSource {
@@ -43,6 +46,7 @@ struct FileDragSource: NSViewRepresentable {
         var dragImage: NSImage?
         var onBegan: (() -> Void)?
         var onClick: (() -> Void)?
+        var onEnded: ((Bool) -> Void)?
 
         private var mouseDownLocation: NSPoint?
         /// Movement below this is a click, above it a drag — AppKit's own threshold.
@@ -108,6 +112,7 @@ struct FileDragSource: NSViewRepresentable {
             operation: NSDragOperation
         ) {
             Log.ui.info("drag session ended: \(operation.rawValue)")
+            onEnded?(!operation.isEmpty)
         }
     }
 }

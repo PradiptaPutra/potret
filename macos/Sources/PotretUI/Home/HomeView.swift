@@ -220,16 +220,34 @@ public struct HomeView: View {
     }
 
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 200), spacing: Space.m)],
-                spacing: Space.m
-            ) {
-                ForEach(visibleItems) { item in
-                    HomeCard(item: item, model: model, actions: historyActions)
-                }
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(filter.title)
+                    .font(TypeRamp.title)
+                Text("\(visibleItems.count)")
+                    .font(TypeRamp.secondary)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("Click to open · drag to share")
+                    .font(TypeRamp.caption)
+                    .foregroundStyle(.tertiary)
             }
-            .padding(Space.m)
+            .padding(.horizontal, Space.l)
+            .padding(.top, Space.l)
+            .padding(.bottom, Space.s)
+
+            ScrollView {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 200), spacing: Space.l)],
+                    spacing: Space.l
+                ) {
+                    ForEach(visibleItems) { item in
+                        HomeCard(item: item, model: model, actions: historyActions)
+                    }
+                }
+                .padding(.horizontal, Space.l)
+                .padding(.bottom, Space.l)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -342,6 +360,9 @@ private struct HomeCard: View {
                     lineWidth: hovering ? 2 : 0.5
                 )
         )
+        .shadow(color: .black.opacity(hovering ? 0.25 : 0.08), radius: hovering ? 10 : 3, y: 2)
+        .scaleEffect(hovering ? 1.015 : 1)
+        .animation(Motion.quick, value: hovering)
     }
 
     private func button(
