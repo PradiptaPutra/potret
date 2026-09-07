@@ -38,6 +38,10 @@ public enum TypeRamp {
     public static let caption = Font.caption
     /// Dimensions, file sizes, filenames — anything where digits should not jitter.
     public static let mono = Font.caption.monospacedDigit()
+    /// The self-timer digit. The one fixed size: it has to be legible from across the room,
+    /// not track the reading-text setting.
+    public static let countdown = Font.system(size: 88, weight: .bold, design: .rounded)
+        .monospacedDigit()
 
     /// Ink: text whose size comes from the document, not from the design system. An annotation's
     /// point size is data the user chose and the renderer honours, so it cannot come from the

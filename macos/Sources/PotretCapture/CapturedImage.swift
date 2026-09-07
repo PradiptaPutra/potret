@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import PotretCore
 
 /// A captured frame, with the metadata needed to save or describe it.
 ///
@@ -23,6 +24,16 @@ public struct CapturedImage: @unchecked Sendable {
 
     public var pointSize: CGSize {
         CGSize(width: CGFloat(cgImage.width) / scale, height: CGFloat(cgImage.height) / scale)
+    }
+
+    /// A region of a whole-display capture, addressed the way a live region capture is: a rect
+    /// in global AppKit coordinates plus the display's frame. This is what a frozen-screen
+    /// capture crops from, so it goes through the same flip as `CaptureTarget.region`.
+    public func cropped(toGlobalRect rect: CGRect, displayFrame: CGRect) -> CapturedImage? {
+        let local = CoordinateSpace.displayLocal(globalRect: rect, displayFrame: displayFrame)
+        let pixels = CoordinateSpace.pixels(from: local, scale: scale).integral
+        guard let image = cgImage.cropping(to: pixels) else { return nil }
+        return CapturedImage(cgImage: image, scale: scale)
     }
 }
 

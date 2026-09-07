@@ -16,6 +16,7 @@ public final class AppCoordinator {
     private let popup = CapturePopupController()
     private let hotKeys = HotKeyCenter()
     private let selector = SelectorCoordinator()
+    private let countdown = CountdownController()
     private let windowPicker = WindowPickerCoordinator()
     private let historyModel: HistoryModel
     private let historyPanel: HistoryPanelController
@@ -91,6 +92,11 @@ public final class AppCoordinator {
                 self?.present(error: error)
             }
         )
+
+        // Freeze snapshots a display through the same engine as every other capture, so the
+        // overlay's own panels are excluded from it.
+        selector.freezeProvider = { [engine] id in try await engine.capture(.display(id)) }
+        selector.onError = { [weak self] error in self?.present(error: error) }
 
         // annotate and dragURL need `self`, so they are attached once initialisation is complete.
         var full = actions
@@ -336,21 +342,52 @@ public final class AppCoordinator {
         case .area:
             guard !selector.isActive else { return }
             popup.dismiss()
-            selector.begin { [weak self] rect, displayID in
-                guard let self else { return }
-                guard let rect, let displayID else {
-                    Log.capture.info("area recording cancelled")
-                    return
+            selector.begin(intent: .record) { [weak self] result in
+                self?.handle(selection: result)
+            }
+        }
+    }
+
+    /// What happens after the selector: the timer if one was set, then a capture or a
+    /// recording of the region — whichever the bar's choice was, regardless of which hotkey
+    /// opened the selector.
+    private func handle(selection result: SelectionResult?) {
+        guard let result else {
+            Log.capture.info("area selection cancelled")
+            return
+        }
+        Log.capture.info(
+            "area \(String(describing: result.intent), privacy: .public) \(NSStringFromRect(result.rect), privacy: .public) delay=\(result.delay) frozen=\(result.frozen != nil)"
+        )
+        Task { [weak self] in
+            guard let self else { return }
+            if result.delay > 0 {
+                await self.countdown.run(seconds: result.delay, centredOn: result.displayFrame)
+            }
+            switch result.intent {
+            case .capture:
+                do {
+                    let captured: CapturedImage
+                    if let frozen = result.frozen,
+                       let crop = frozen.cropped(
+                           toGlobalRect: result.rect, displayFrame: result.displayFrame
+                       ) {
+                        captured = crop
+                    } else {
+                        captured = try await self.engine.capture(
+                            .region(result.rect, on: result.displayID)
+                        )
+                    }
+                    try await self.finish(captured)
+                } catch {
+                    self.present(error: error)
                 }
-                Log.capture.info(
-                    "area recording region \(NSStringFromRect(rect), privacy: .public)"
+            case .record:
+                await self.recorder.start(
+                    target: .region(result.rect, on: result.displayID),
+                    settings: self.recordingSettings
                 )
-                Task {
-                    await self.recorder.start(
-                        target: .region(rect, on: displayID), settings: self.recordingSettings
-                    )
-                    self.onRecordingStateChanged?()
-                }
+                self.onRecordingStateChanged?()
             }
         }
     }
@@ -713,16 +750,8 @@ public final class AppCoordinator {
         guard !selector.isActive else { return }
         popup.dismiss()
 
-        selector.begin { [weak self] rect, displayID in
-            guard let self, let rect, let displayID else { return } // nil means cancelled
-            Task {
-                do {
-                    let captured = try await self.engine.capture(.region(rect, on: displayID))
-                    try await self.finish(captured)
-                } catch {
-                    self.present(error: error)
-                }
-            }
+        selector.begin(intent: .capture) { [weak self] result in
+            self?.handle(selection: result)
         }
     }
 

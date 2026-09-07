@@ -214,3 +214,34 @@ try renderPNG(
     Image(nsImage: TrayIcon.image(size: 18)),
     size: CGSize(width: 18, height: 18), appearance: .aqua, named: "tray-icon-18"
 )
+
+// The post-selection options bar, over a real capture, in both intents. HUD chrome is dark in
+// either appearance and the shipping panel pins `.darkAqua`, so one appearance is enough.
+struct SelectionBarScene: View {
+    let sample: NSImage
+    let model: SelectionBarModel
+
+    var body: some View {
+        ZStack {
+            Image(nsImage: sample).resizable().scaledToFill()
+            Color.black.opacity(0.35)
+            SelectionBarView(model: model, actions: SelectionBarActions())
+        }
+    }
+}
+
+let captureBar = SelectionBarModel()
+captureBar.reflect(pixelSize: CGSize(width: 1920, height: 1080))
+let recordBar = SelectionBarModel()
+recordBar.intent = .record
+recordBar.delay = 5
+recordBar.frozen = true
+recordBar.aspectLocked = true
+recordBar.reflect(pixelSize: CGSize(width: 1000, height: 700))
+for (name, model) in [("capture", captureBar), ("record", recordBar)] {
+    try renderPNG(
+        SelectionBarScene(sample: sample, model: model),
+        size: CGSize(width: 520, height: 120), appearance: .darkAqua,
+        named: "selection-bar-\(name)"
+    )
+}

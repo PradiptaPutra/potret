@@ -73,6 +73,16 @@ No UI automation is available, so these are a real checklist, not a formality.
 - [ ] Arrangement changed mid-drag
 - [ ] Region crop lands exactly where the marquee was, on a 2× display
 
+**Selection options bar**
+- [ ] Selection survives mouse-up; handles resize from every edge and corner
+- [ ] Aspect lock holds the ratio from a corner and from an edge
+- [ ] Typed W/H applies on Return, anchored top-left, clamped to the screen
+- [ ] A size field takes the keyboard, and Return hands it back so Return captures
+- [ ] Freeze holds the screen still, and capturing crops the frozen frame, not a fresh one
+- [ ] Self-timer counts down without stealing focus from the thing being captured
+- [ ] Record in the bar starts a region recording even when the selector was opened to capture
+- [ ] The bar flips above the selection near the screen bottom, and never leaves the screen
+
 **Other**
 - [ ] Drag-out to Finder, Slack, Mail, Preview
 - [ ] Light/Dark × Increase Contrast × Reduce Motion × a non-blue accent colour
