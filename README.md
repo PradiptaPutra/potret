@@ -66,37 +66,43 @@ Prefer to build it yourself (no Gatekeeper prompt)? See [Development](#getting-s
 
 ## Tech stack
 
-- [Tauri 2](https://tauri.app) — Rust backend, tiny native binary
-- React 19 + TypeScript — UI
-- Tailwind CSS v4 — styling
-- macOS `screencapture` — native capture engine
+- **Swift** — native macOS app, no web view
+- **ScreenCaptureKit** — capture and recording
+- **SwiftUI + AppKit** — system materials, controls and accent colour; Light and Dark for free
+- **Swift Package Manager** — builds without Xcode
 
 ## Getting started
 
 ### Prerequisites
 
-- macOS
-- [Rust](https://rustup.rs)
-- Node.js 18+
+- macOS 14 Sonoma or later
+- The Swift toolchain — either Xcode or just the Command Line Tools (`xcode-select --install`).
+  The project deliberately builds without Xcode; see [`macos/TESTING.md`](macos/TESTING.md) for
+  what that changes.
 
 ### Development
 
 ```bash
-npm install
-npm run tauri dev
+./macos/scripts/run.sh      # build, sign, relaunch the dev app (~10s)
+./macos/scripts/test.sh     # the test suite
 ```
+
+The dev build runs as `com.potret.app.dev`, so it sits alongside an installed Potret without
+touching its settings or its Screen Recording grant. It needs its own grant the first time.
 
 ### Build a release (.dmg)
 
-Releases are universal (Intel + Apple Silicon), signed, and packaged with one command:
+Releases are universal (Intel + Apple Silicon), signed with a stable self-signed identity, and
+packaged with one command:
 
 ```bash
-rustup target add x86_64-apple-darwin   # one-time
-./scripts/release.sh                     # → dist-dmg/Potret_<version>_universal.dmg
+./scripts/setup-signing-cert.sh   # one-time
+./scripts/release.sh              # → dist-dmg/Potret_<version>_universal.dmg
 ```
 
-(Plain `npm run tauri build` leaves the universal binary with a broken signature — see
-[CONTRIBUTING.md](CONTRIBUTING.md) for why the script handles signing/packaging instead.)
+The stable identity matters: macOS ties the Screen Recording grant to it, so an ad-hoc-signed
+build would ask every user for the permission again after every update. `release.sh` refuses to
+package one.
 
 ### Permissions
 
@@ -106,9 +112,16 @@ Potret needs **Screen Recording** permission. On first run, grant it in
 ## Project layout
 
 ```
-src/                  React frontend (capture UI, annotation, popup, settings)
-src-tauri/            Rust backend (capture commands, windows, history, config)
-src-tauri/src/lib.rs  main Rust entry — capture pipeline + Tauri commands
+macos/                 the app — a Swift package that builds Potret.app
+  Sources/PotretCore     model, config, history, geometry — no AppKit, fully unit-tested
+  Sources/PotretCapture  ScreenCaptureKit, encoding, clipboard
+  Sources/PotretRender   the one renderer used on screen and for export
+  Sources/PotretRecord   recording, trimming, GIF export
+  Sources/PotretUI       windows, panels, editor, settings
+  scripts/               build-app.sh, build-dmg.sh, run.sh, test.sh, lint-design.sh
+landing/               the website (Vite + React, deployed separately)
+promo/                 the promo video (Remotion, independent)
+scripts/               release, signing and Homebrew publishing
 ```
 
 ## Support

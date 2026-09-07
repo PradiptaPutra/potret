@@ -5,66 +5,63 @@ for anything substantial, please open an issue first to discuss the approach.
 
 ## Development setup
 
-Requirements: macOS, [Rust](https://rustup.rs), Node.js 18+, Xcode command line tools.
+Requirements: macOS 14+, and the Swift toolchain — Xcode **or** just the Command Line Tools
+(`xcode-select --install`). The project builds without Xcode on purpose; `macos/TESTING.md`
+explains what that removes (no XCTest, no asset catalogs, no previews) and how each is handled.
 
 ```bash
-npm install
-npm run tauri dev
+./macos/scripts/run.sh     # build, sign and relaunch the dev app
+./macos/scripts/test.sh    # swift-testing suite — do not call `swift test` directly
+./macos/scripts/lint-design.sh
 ```
 
-The app is **Tauri 2** (Rust backend) + **React 19 / TypeScript** (frontend):
+The app is a Swift package in `macos/` with a strictly linear dependency chain:
 
 ```
-src/                  React frontend — capture UI, annotation, popup, settings
-src-tauri/src/lib.rs  Rust backend — capture pipeline, windows, history, config, commands
-scripts/release.sh    Build a signed, universal .dmg for a release
+Potret → PotretUI → {PotretCapture, PotretRender, PotretRecord} → PotretCore
 ```
 
-Before opening a PR, make sure both build cleanly:
+`PotretCore` imports Foundation and CoreGraphics only. That is the testability boundary: keep
+model and logic there, and it can be tested headless with no display and no permission grant.
+
+Before opening a PR, make sure all three pass:
 
 ```bash
-npm run build                                            # frontend (tsc + vite)
-cargo build --manifest-path src-tauri/Cargo.toml         # backend
+./macos/scripts/test.sh && ./macos/scripts/lint-design.sh && ./macos/scripts/build-app.sh
 ```
+
+`lint-design.sh` fails on hardcoded colours, font sizes or corner radii outside
+`Sources/PotretUI/Design/Theme.swift`, and on `NSApp.activate` outside `MainWindowController` —
+every overlay is a non-activating panel, and an activate() anywhere else brings back the
+focus-stealing bugs the rewrite exists to remove.
 
 ## Building a release (.dmg)
 
-Releases are universal (Intel + Apple Silicon) and built with one command:
-
 ```bash
-rustup target add x86_64-apple-darwin   # one-time, for the Intel slice
-./scripts/release.sh
+./scripts/setup-signing-cert.sh   # one-time: creates the stable "Potret Self-Signed" identity
+./scripts/release.sh              # test, lint, build universal, sign, package
 ```
 
-This produces `dist-dmg/Potret_<version>_universal.dmg`.
+This produces `dist-dmg/Potret_<version>_universal.dmg`. The version is `macos/VERSION`.
 
-> **Why a script instead of plain `tauri build`?** `tauri build --target universal-apple-darwin`
-> leaves the universal binary with a broken ad-hoc signature (a known lipo issue), which prevents
-> macOS from persisting the Screen Recording permission, and its built-in `.dmg` step needs Finder
-> automation. `scripts/release.sh` rebuilds, **deep re-signs** the app, and packages the `.dmg`
-> (with an "OPEN ME FIRST" install guide) correctly and reproducibly.
+> **Why a stable self-signed identity?** macOS ties the Screen Recording grant to the signing
+> certificate. An ad-hoc build has a different identity every time, so users would be asked for
+> the permission again after every update. `build-dmg.sh` refuses to package an ad-hoc build, or
+> one carrying the development bundle id.
 
 Publish it:
 
 ```bash
 gh release create v<version> dist-dmg/Potret_<version>_universal.dmg --title "Potret v<version>"
-```
-
-Then update the Homebrew tap so `brew install --cask` picks up the new version
-(creates the `PradiptaPutra/homebrew-tap` repo on first run):
-
-```bash
 ./scripts/publish-homebrew-cask.sh
 ```
 
-### Signing & notarization
+The DMG filename, volume name and `app "Potret.app"` stanza are a contract with the Homebrew
+cask — every existing `brew upgrade` depends on them.
 
-Builds are **ad-hoc signed** (no Apple Developer account). Consequences:
+### Notarization
 
-- Users see a one-time Gatekeeper warning on first launch (documented in the README).
-- The Screen Recording permission is tied to the signature, so it must be re-granted after each
-  **update** (each ad-hoc build has a different signature).
-
-A paid **Apple Developer ID + notarization** would remove the Gatekeeper warning entirely and make
-the permission persist across updates. If/when that's set up, the signing identity in
-`scripts/release.sh` (`--sign -`) would be swapped for the Developer ID and a notarization step added.
+Builds are not notarized (no Apple Developer account), so users see a one-time Gatekeeper prompt
+on first launch; the README and the DMG's install guide cover it. A Developer ID plus
+`notarytool` would remove that prompt; the signing identity in `macos/scripts/build-app.sh`
+would be swapped for it.
