@@ -15,17 +15,6 @@ const stroke = {
 
 const FEATURES: Feature[] = [
   {
-    title: "Quick Access popup",
-    body:
-      "Every capture lands in a floating panel: copy it, save it, annotate it, pin it, or drag it straight into Slack, Figma or a message. It follows you across Spaces and never steals focus.",
-    icon: () => (
-      <svg viewBox="0 0 24 24" {...stroke} className="size-5">
-        <rect x="3" y="5" width="18" height="14" rx="2.5" />
-        <path d="M3 15.5 8 11l4.5 4M14 13.5 16.5 11l4.5 4.5" />
-      </svg>
-    ),
-  },
-  {
     title: "Annotation that undoes",
     body:
       "Pen, arrow, line, rectangle, ellipse, text, highlighter, numbered steps, pixelate and blur, plus crop. Undo and redo sit at the head of the toolbar, and text is typed straight onto the canvas at its real size.",
@@ -68,18 +57,6 @@ const FEATURES: Feature[] = [
         <rect x="13.5" y="4" width="7.5" height="7.5" rx="1.6" />
         <rect x="3" y="14.5" width="7.5" height="5.5" rx="1.6" />
         <rect x="13.5" y="14.5" width="7.5" height="5.5" rx="1.6" />
-      </svg>
-    ),
-  },
-  {
-    title: "Recent captures, on hover",
-    body:
-      "Nudge the corner of your screen and the last few captures fan out, ready to drag. There is a menu-bar popup for the same thing on a keystroke.",
-    icon: () => (
-      <svg viewBox="0 0 24 24" {...stroke} className="size-5">
-        <path d="M3 12a9 9 0 1 0 3-6.7" />
-        <path d="M3 4.5V9h4.5" />
-        <path d="M12 8v4.5l3 1.8" />
       </svg>
     ),
   },

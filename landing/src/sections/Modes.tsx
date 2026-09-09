@@ -1,50 +1,47 @@
-import type { ReactElement } from "react";
-import { useState } from "react";
 import MacWindow from "../components/MacWindow";
 
 type Mode = {
   id: string;
-  label: string;
   eyebrow: string;
   title: string;
   body: string;
   points: string[];
   shot: string;
   alt: string;
-  frame: string;
-  icon: () => ReactElement;
+  caption: string;
 };
 
+/**
+ * Three stacked sections rather than three tabs.
+ *
+ * The first version put these behind a segmented control, which meant a
+ * visitor scrolling past saw only the first one — recording and trimming, the
+ * two headline features of this release, were invisible unless you happened to
+ * click. Alternating the image side keeps the rhythm without hiding anything.
+ */
 const MODES: Mode[] = [
   {
     id: "capture",
-    label: "Capture",
-    eyebrow: "Capture mode",
+    eyebrow: "Capture",
     title: "Drag once. Decide after.",
     body:
       "The selection stays put when you let go. Nudge it with handles, type an exact size, lock the aspect ratio — then capture it, or record it, without starting over.",
     points: [
       "Area, window, or the whole screen",
-      "Type exact pixel dimensions, or lock to 16:9",
+      "Type exact pixel dimensions, or lock the ratio",
       "Freeze the screen so a menu stops closing on you",
       "Self-timer for hover states that vanish",
     ],
     shot: "/shot-selector.png",
-    alt: "The Potret selection bar under a selected area, showing capture, record, timer and freeze buttons beside a width and height field.",
-    frame: "Selecting an area",
-    icon: () => (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5">
-        <path d="M3 8V5a2 2 0 0 1 2-2h3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" strokeLinecap="round" />
-      </svg>
-    ),
+    alt: "A selected area with resize handles, and a bar beneath it holding capture, record, timer and freeze buttons beside width and height fields.",
+    caption: "The options bar, after the drag",
   },
   {
     id: "record",
-    label: "Record",
-    eyebrow: "Record mode",
-    title: "A demo people can follow.",
+    eyebrow: "Record",
+    title: "A demo people can actually follow.",
     body:
-      "Record an area, a window or the screen to MP4. Every click gets a ring drawn into the video — never onto your actual screen — so a viewer can see what you did, not just what changed.",
+      "Record an area, a window or the screen to MP4. Every click gets a ring drawn into the video — never onto your screen — so a viewer sees what you did, not just what changed.",
     points: [
       "Click highlighting, composited into the frames",
       "A countdown before it rolls, so you can get set",
@@ -52,19 +49,12 @@ const MODES: Mode[] = [
       "Standard or high quality, 30 or 60 fps",
     ],
     shot: "/shot-clicks.png",
-    alt: "A frame from a Potret recording with an amber ring marking where the pointer was clicked.",
-    frame: "A click, marked in the video",
-    icon: () => (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5">
-        <circle cx="12" cy="12" r="8.5" />
-        <circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none" />
-      </svg>
-    ),
+    alt: "A frame from a recording with amber rings marking two places the pointer was clicked.",
+    caption: "Clicks, marked in the video only",
   },
   {
     id: "trim",
-    label: "Trim",
-    eyebrow: "Trim mode",
+    eyebrow: "Trim",
     title: "Cut it on a real timeline.",
     body:
       "Recordings open in a timeline with a ruler, the clip bracketed between drag handles, a transport and zoom. Export as video or GIF — and the cut applies to your library, not only to the copy you export.",
@@ -76,25 +66,11 @@ const MODES: Mode[] = [
     ],
     shot: "/shot-trim.png",
     alt: "The Potret trim window: a video player above a timeline with a time ruler, a filmstrip and amber drag handles.",
-    frame: "Recording · 0:14",
-    icon: () => (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5">
-        <circle cx="6" cy="6" r="2.6" />
-        <circle cx="6" cy="18" r="2.6" />
-        <path d="M20 4 8.5 16.2M8.5 7.8 20 20" strokeLinecap="round" />
-      </svg>
-    ),
+    caption: "Trimming a recording",
   },
 ];
 
-/**
- * The segmented control — one app, three jobs. Switching swaps the copy and
- * the screenshot in place rather than scrolling somewhere else.
- */
 export default function Modes() {
-  const [active, setActive] = useState(0);
-  const mode = MODES[active];
-
   return (
     <section id="modes" className="py-20">
       <div className="shell">
@@ -107,56 +83,39 @@ export default function Modes() {
           </p>
         </div>
 
-        <div className="reveal mt-8 flex justify-center">
-          <div
-            role="tablist"
-            aria-label="Modes"
-            className="inline-flex gap-1 rounded-full bg-mist p-1"
-          >
-            {MODES.map((item, index) => {
-              const selected = index === active;
-              return (
-                <button
-                  key={item.id}
-                  role="tab"
-                  type="button"
-                  aria-selected={selected}
-                  onClick={() => setActive(index)}
-                  className={`flex items-center gap-2 rounded-full px-4 py-2 text-[14px] font-medium transition-colors ${
-                    selected
-                      ? "border border-fog bg-paper text-ink"
-                      : "border border-transparent text-graphite hover:text-ink"
-                  }`}
-                  style={selected ? { boxShadow: "var(--shadow-button)" } : undefined}
-                >
-                  <span className={selected ? "text-[var(--color-spark-deep)]" : ""}>
-                    {item.icon()}
-                  </span>
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <div className="mt-16 space-y-20">
+          {MODES.map((mode, index) => (
+            <div
+              key={mode.id}
+              id={mode.id}
+              className="grid items-center gap-12 lg:grid-cols-2"
+            >
+              <div
+                className={`reveal min-w-0 ${index % 2 === 1 ? "lg:order-2" : ""}`}
+              >
+                <p className="eyebrow">{mode.eyebrow}</p>
+                <h3 className="heading mt-3">{mode.title}</h3>
+                <p className="mt-4 max-w-[52ch] text-[16px] text-slate">
+                  {mode.body}
+                </p>
+                <ul className="mt-6 space-y-3">
+                  {mode.points.map((point) => (
+                    <li key={point} className="flex gap-3 text-[15px] text-ink">
+                      <Tick />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-        <div className="mt-12 grid items-center gap-12 lg:grid-cols-2">
-          <div className="reveal min-w-0">
-            <p className="eyebrow">{mode.eyebrow}</p>
-            <h3 className="heading mt-3">{mode.title}</h3>
-            <p className="mt-4 max-w-[52ch] text-[16px] text-slate">{mode.body}</p>
-            <ul className="mt-6 space-y-3">
-              {mode.points.map((point) => (
-                <li key={point} className="flex gap-3 text-[15px] text-ink">
-                  <Tick />
-                  <span>{point}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="reveal min-w-0" style={{ transitionDelay: "80ms" }}>
-            <MacWindow src={mode.shot} alt={mode.alt} title={mode.frame} />
-          </div>
+              <div
+                className={`reveal min-w-0 ${index % 2 === 1 ? "lg:order-1" : ""}`}
+                style={{ transitionDelay: "80ms" }}
+              >
+                <MacWindow src={mode.shot} alt={mode.alt} title={mode.caption} />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </section>
