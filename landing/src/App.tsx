@@ -1,25 +1,26 @@
-import Grain from "./components/Grain";
 import Nav from "./components/Nav";
 import Hero from "./sections/Hero";
+import Modes from "./sections/Modes";
 import Features from "./sections/Features";
-import Workflow from "./sections/Workflow";
+import Native from "./sections/Native";
 import Download from "./sections/Download";
-import Support from "./sections/Support";
 import Footer from "./sections/Footer";
+import { useReveal } from "./lib/useReveal";
 
 export default function App() {
+  const ref = useReveal<HTMLDivElement>();
+
   return (
-    <>
-      <Grain />
+    <div ref={ref}>
       <Nav />
-      <main id="top" className="relative">
+      <main id="top">
         <Hero />
+        <Modes />
         <Features />
-        <Workflow />
+        <Native />
         <Download />
-        <Support />
       </main>
       <Footer />
-    </>
+    </div>
   );
 }

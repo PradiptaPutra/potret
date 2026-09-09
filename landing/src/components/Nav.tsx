@@ -1,62 +1,53 @@
-import { useEffect, useState } from "react";
+import { DMG, REPO } from "../lib/site";
 import { Logo } from "./Logo";
 
+// Only sections that exist at every moment. The mode panel swaps its content
+// in place, so #record and #trim are not addressable — linking to them from
+// here would have been a dead anchor two thirds of the time.
 const LINKS = [
-  { label: "Features", href: "#features" },
-  { label: "How it works", href: "#how" },
-  { label: "Download", href: "#download" },
+  { href: "#modes", label: "How it works" },
+  { href: "#features", label: "Features" },
+  { href: "#download", label: "Download" },
 ];
 
-const GITHUB = "https://github.com/PradiptaPutra/potret";
-
+/**
+ * A floating pill, centred at the top with margin from the viewport edge —
+ * the signature silhouette of this design system.
+ */
 export default function Nav() {
-  const [scrolled, setScrolled] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 16);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
   return (
-    <header
-      className="fixed inset-x-0 top-0 z-50 transition-all duration-300"
-      style={{
-        backdropFilter: scrolled ? "blur(14px) saturate(140%)" : "none",
-        WebkitBackdropFilter: scrolled ? "blur(14px) saturate(140%)" : "none",
-        background: scrolled ? "rgba(11,10,12,0.66)" : "transparent",
-        borderBottom: scrolled ? "1px solid var(--color-hair)" : "1px solid transparent",
-      }}
-    >
-      <nav className="container-x flex h-16 items-center justify-between md:h-[72px]">
-        <Logo />
+    <header className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-5 pt-4">
+      <nav
+        className="pointer-events-auto flex items-center gap-1 rounded-full border border-ash bg-paper/90 px-3 py-2 backdrop-blur-xl"
+        style={{ boxShadow: "var(--shadow-nav)" }}
+        aria-label="Primary"
+      >
+        <Logo className="mr-2 pl-1" />
 
-        <div className="hidden items-center gap-1 md:flex">
-          {LINKS.map((l) => (
-            <a
-              key={l.href}
-              href={l.href}
-              className="rounded-full px-3.5 py-2 text-[14px] text-mist transition-colors duration-200 hover:text-bone"
-            >
-              {l.label}
-            </a>
+        <ul className="hidden items-center gap-1 md:flex">
+          {LINKS.map((link) => (
+            <li key={link.href}>
+              <a
+                href={link.href}
+                className="rounded-full px-3 py-1.5 text-[14px] font-medium text-slate transition-colors hover:bg-mist hover:text-ink"
+              >
+                {link.label}
+              </a>
+            </li>
           ))}
-        </div>
+        </ul>
 
-        <div className="flex items-center gap-2.5">
-          <a
-            href={GITHUB}
-            target="_blank"
-            rel="noreferrer"
-            className="hidden text-[14px] text-mist transition-colors duration-200 hover:text-bone sm:inline-flex"
-          >
-            GitHub
-          </a>
-          <a href="#download" className="btn btn-primary !px-4 !py-2 !text-[14px]">
-            Download
-          </a>
-        </div>
+        <span className="mx-1 hidden h-5 w-px bg-fog sm:block" aria-hidden="true" />
+
+        <a
+          href={REPO}
+          className="hidden rounded-full px-3 py-1.5 text-[14px] font-medium text-slate transition-colors hover:bg-mist hover:text-ink sm:block"
+        >
+          GitHub
+        </a>
+        <a href={DMG} className="btn btn-primary ml-1 !px-4 !py-1.5 !text-[14px]">
+          Download
+        </a>
       </nav>
     </header>
   );

@@ -1,78 +1,66 @@
-import { ApertureMark, Wordmark } from "../components/Logo";
+import { ApertureMark } from "../components/Logo";
+import { REPO, RELEASES, VERSION } from "../lib/site";
 
-const GITHUB_URL = "https://github.com/PradiptaPutra/potret";
-const RELEASES_URL = "https://github.com/PradiptaPutra/potret/releases/latest";
-const LICENSE_URL =
-  "https://github.com/PradiptaPutra/potret/blob/main/LICENSE";
-const COFFEE_URL = "https://tiptap.gg/dipta";
-
-type Col = {
-  title: string;
-  links: { label: string; href: string; external?: boolean }[];
-};
-
-const COLUMNS: Col[] = [
+const COLUMNS = [
   {
-    title: "Product",
+    heading: "Product",
     links: [
+      { label: "Capture", href: "#modes" },
+      { label: "Record", href: "#modes" },
+      { label: "Trim", href: "#modes" },
       { label: "Features", href: "#features" },
-      { label: "How it works", href: "#how" },
-      { label: "Download", href: "#download" },
     ],
   },
   {
-    title: "Project",
+    heading: "Get it",
     links: [
-      { label: "GitHub", href: GITHUB_URL, external: true },
-      { label: "Releases", href: RELEASES_URL, external: true },
-      { label: "License (MIT)", href: LICENSE_URL, external: true },
+      { label: "Download", href: "#download" },
+      { label: "Releases", href: RELEASES },
+      { label: "Homebrew tap", href: "https://github.com/PradiptaPutra/homebrew-tap" },
     ],
   },
   {
-    title: "Support",
-    links: [{ label: "Buy me a coffee", href: COFFEE_URL, external: true }],
+    heading: "Project",
+    links: [
+      { label: "Source", href: REPO },
+      { label: "Report a bug", href: `${REPO}/issues` },
+      { label: "Contributing", href: `${REPO}/blob/main/CONTRIBUTING.md` },
+      { label: "Licence", href: `${REPO}/blob/main/LICENSE` },
+    ],
   },
 ];
 
 export default function Footer() {
   return (
-    <footer className="relative border-t border-[color:var(--color-hair)] bg-ink-2">
-      <div className="container-x py-16 md:py-20">
-        <div className="grid gap-12 md:grid-cols-[1.4fr_repeat(3,1fr)]">
-          {/* brand */}
-          <div className="max-w-xs">
-            <div className="flex items-center gap-2.5">
-              <ApertureMark size={24} />
-              <Wordmark />
+    <footer className="border-t border-ash bg-paper py-14">
+      <div className="shell">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr]">
+          <div>
+            <div className="flex items-center gap-2">
+              <ApertureMark size={22} />
+              <span className="text-[17px] font-bold tracking-[-0.02em]">
+                Potret
+              </span>
             </div>
-            <p className="mt-4 font-display text-[15px] italic leading-snug text-mist">
-              Screenshots with a sense of style.
+            <p className="mt-3 max-w-[34ch] text-[14px] leading-[1.6] text-graphite">
+              A free, open-source screenshot and screen-recording tool for
+              macOS. Built in the open, MIT licensed.
             </p>
           </div>
 
-          {/* link columns */}
-          {COLUMNS.map((col) => (
-            <nav key={col.title} aria-label={col.title}>
-              <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.2em] text-faint">
-                {col.title}
-              </h2>
-              <ul className="mt-4 space-y-3">
-                {col.links.map((link) => (
+          {COLUMNS.map((column) => (
+            <nav key={column.heading} aria-label={column.heading}>
+              <h3 className="text-[15px] font-medium text-ink">
+                {column.heading}
+              </h3>
+              <ul className="mt-3 space-y-2">
+                {column.links.map((link) => (
                   <li key={link.label}>
                     <a
                       href={link.href}
-                      {...(link.external
-                        ? { target: "_blank", rel: "noreferrer" }
-                        : {})}
-                      className="text-sm text-mist transition-colors hover:text-bone focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber"
+                      className="text-[14px] text-graphite transition-colors hover:text-ink"
                     >
                       {link.label}
-                      {link.external && (
-                        <span aria-hidden="true" className="text-faint">
-                          {" "}
-                          ↗
-                        </span>
-                      )}
                     </a>
                   </li>
                 ))}
@@ -81,22 +69,11 @@ export default function Footer() {
           ))}
         </div>
 
-        <hr className="hairline my-10" />
-
-        {/* bottom bar */}
-        <div className="flex flex-col gap-4 text-[12.5px] text-faint md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-            <span>© 2026 Potret · MIT</span>
-            <span aria-hidden="true" className="text-[color:var(--color-hair-2)]">
-              ·
-            </span>
-            <span className="font-mono text-mist">v0.2.4</span>
-            <span aria-hidden="true" className="text-[color:var(--color-hair-2)]">
-              ·
-            </span>
-            <span>Made with too much Claude Code 🤎</span>
-          </div>
-          <p className="font-mono text-mist">Tauri · React · Tailwind</p>
+        <div className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-ash pt-6">
+          <p className="text-[13px] text-graphite">
+            © {new Date().getFullYear()} Potret · MIT
+          </p>
+          <p className="font-mono text-[12px] text-steel">v{VERSION}</p>
         </div>
       </div>
     </footer>
