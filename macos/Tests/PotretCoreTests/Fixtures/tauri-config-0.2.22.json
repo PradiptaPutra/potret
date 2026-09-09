@@ -1,0 +1,11 @@
+{
+  "shortcut_area": "CommandOrControl+Shift+4",
+  "shortcut_window": "CommandOrControl+Shift+5",
+  "shortcut_fullscreen": "CommandOrControl+Shift+3",
+  "save_path": "/Users/example/Pictures/Shots",
+  "format": "jpg",
+  "jpeg_quality": 82,
+  "filename_template": "Shot {date} {seq}",
+  "shortcut_history": "CommandOrControl+Shift+H",
+  "corner_popup_enabled": false
+}

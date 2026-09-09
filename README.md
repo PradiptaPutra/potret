@@ -10,7 +10,7 @@
 
 ---
 
-Potret lives in your menu bar. Take a screenshot and a floating **Quick Access** panel appears so you can copy, save, annotate, pin, drag it out, or drop it onto a beautiful background — without opening a heavy editor.
+Potret lives in your menu bar. Take a screenshot and a floating **Quick Access** panel appears so you can copy, save, annotate, pin, drag it out, or drop it onto a beautiful background — without opening a heavy editor. Record your screen too, with click highlighting and a built-in trimmer.
 
 ## Download
 
@@ -56,6 +56,9 @@ Prefer to build it yourself (no Gatekeeper prompt)? See [Development](#getting-s
 ## Features
 
 - **Capture** — area (drag to select), window (click any window), or fullscreen
+- **Selection options bar** — after you drag an area, adjust it with handles, type an exact size, lock the aspect ratio, freeze the screen, or set a self-timer, then capture or record from the same bar
+- **Screen recording** — area, window or fullscreen to MP4, with a countdown, an optional pointer, and **click highlighting** that marks every click in the video without showing anything on your screen
+- **Trim** — review a recording on a real timeline with a ruler, drag handles to cut, and export the result as video or GIF; the trim is applied to your library, not just the exported copy
 - **Quick Access popup** — copy, save, annotate, pin, or drag the capture straight into another app; follows you across Spaces/desktops
 - **Annotation** — pen, line, arrow, rectangle, ellipse, text, highlighter, pixelate/blur, numbered steps, crop, eraser — with undo/redo and a custom color picker
 - **Background tool** — drop a screenshot onto gradient or custom backgrounds with padding, rounded corners, and shadow (great for social posts)
@@ -66,37 +69,43 @@ Prefer to build it yourself (no Gatekeeper prompt)? See [Development](#getting-s
 
 ## Tech stack
 
-- [Tauri 2](https://tauri.app) — Rust backend, tiny native binary
-- React 19 + TypeScript — UI
-- Tailwind CSS v4 — styling
-- macOS `screencapture` — native capture engine
+- **Swift** — native macOS app, no web view
+- **ScreenCaptureKit** — capture and recording
+- **SwiftUI + AppKit** — system materials, controls and accent colour; Light and Dark for free
+- **Swift Package Manager** — builds without Xcode
 
 ## Getting started
 
 ### Prerequisites
 
-- macOS
-- [Rust](https://rustup.rs)
-- Node.js 18+
+- macOS 14 Sonoma or later
+- The Swift toolchain — either Xcode or just the Command Line Tools (`xcode-select --install`).
+  The project deliberately builds without Xcode; see [`macos/TESTING.md`](macos/TESTING.md) for
+  what that changes.
 
 ### Development
 
 ```bash
-npm install
-npm run tauri dev
+./macos/scripts/run.sh      # build, sign, relaunch the dev app (~10s)
+./macos/scripts/test.sh     # the test suite
 ```
+
+The dev build runs as `com.potret.app.dev`, so it sits alongside an installed Potret without
+touching its settings or its Screen Recording grant. It needs its own grant the first time.
 
 ### Build a release (.dmg)
 
-Releases are universal (Intel + Apple Silicon), signed, and packaged with one command:
+Releases are universal (Intel + Apple Silicon), signed with a stable self-signed identity, and
+packaged with one command:
 
 ```bash
-rustup target add x86_64-apple-darwin   # one-time
-./scripts/release.sh                     # → dist-dmg/Potret_<version>_universal.dmg
+./scripts/setup-signing-cert.sh   # one-time
+./scripts/release.sh              # → dist-dmg/Potret_<version>_universal.dmg
 ```
 
-(Plain `npm run tauri build` leaves the universal binary with a broken signature — see
-[CONTRIBUTING.md](CONTRIBUTING.md) for why the script handles signing/packaging instead.)
+The stable identity matters: macOS ties the Screen Recording grant to it, so an ad-hoc-signed
+build would ask every user for the permission again after every update. `release.sh` refuses to
+package one.
 
 ### Permissions
 
@@ -106,9 +115,16 @@ Potret needs **Screen Recording** permission. On first run, grant it in
 ## Project layout
 
 ```
-src/                  React frontend (capture UI, annotation, popup, settings)
-src-tauri/            Rust backend (capture commands, windows, history, config)
-src-tauri/src/lib.rs  main Rust entry — capture pipeline + Tauri commands
+macos/                 the app — a Swift package that builds Potret.app
+  Sources/PotretCore     model, config, history, geometry — no AppKit, fully unit-tested
+  Sources/PotretCapture  ScreenCaptureKit, encoding, clipboard
+  Sources/PotretRender   the one renderer used on screen and for export
+  Sources/PotretRecord   recording, trimming, GIF export
+  Sources/PotretUI       windows, panels, editor, settings
+  scripts/               build-app.sh, build-dmg.sh, run.sh, test.sh, lint-design.sh
+landing/               the website (Vite + React, deployed separately)
+promo/                 the promo video (Remotion, independent)
+scripts/               release, signing and Homebrew publishing
 ```
 
 ## Support

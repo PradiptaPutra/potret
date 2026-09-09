@@ -1,38 +1,27 @@
 # Logs
-logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
 
+# Node (landing/, promo/)
 node_modules
 dist
-dist-ssr
-*.local
 .env
 .env.*
 
-# Rust / Tauri build artifacts (target is ~11GB — never commit)
-/src-tauri/target
-src-tauri/target
-/src-tauri/gen
-src-tauri/gen
+# Swift build output (macos/.gitignore covers the package itself)
+macos/.build/
+macos/build/
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+*.swp
 
 # Local DMG staging (published to Releases, not committed)
 dist-dmg/
 *.dmg
 .cold-shower/
 .plan-gate/
+.remember/

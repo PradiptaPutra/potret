@@ -20,7 +20,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Potret"
-SRC="${1:-$ROOT/src-tauri/target/universal-apple-darwin/release/bundle/macos/${APP_NAME}.app}"
+SRC="${1:-$ROOT/macos/build/${APP_NAME}.app}"
 DEST="/Applications/${APP_NAME}.app"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 

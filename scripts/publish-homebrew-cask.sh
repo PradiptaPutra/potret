@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="$(node -p "require('${ROOT}/package.json').version")"
+VERSION="$(tr -d '[:space:]' < "${ROOT}/macos/VERSION")"
 DMG="${ROOT}/dist-dmg/Potret_${VERSION}_universal.dmg"
 TAP="PradiptaPutra/homebrew-tap"          # users tap this as "PradiptaPutra/tap"
 REPO="PradiptaPutra/potret"
@@ -64,7 +64,6 @@ cask "potret" do
     "~/Library/Caches/potret",
     "~/Library/Preferences/com.potret.app.plist",
     "~/Library/Saved Application State/com.potret.app.savedState",
-    "~/Library/WebKit/com.potret.app",
     "~/Library/LaunchAgents/Potret.plist",
   ]
 end
