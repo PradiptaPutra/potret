@@ -1,70 +1,52 @@
-import Desktop from "../components/Desktop";
-import { BREW, DMG, RELEASES, SPECS, VERSION } from "../lib/site";
 import CopyLine from "../components/CopyLine";
+import { BREW, DMG, RELEASES, SPECS, VERSION } from "../lib/site";
 
 /**
- * Two-column asymmetric split: the claim on the left, the product on the
- * right. The product is a real screenshot of the shipping app, not an
- * illustration — it is the entire argument.
+ * Centred rather than two-column.
+ *
+ * The product shot moved into the MacBook below, which opens as you scroll
+ * into it — so a second copy of the same window beside the headline would only
+ * have stolen its arrival. What is left is the claim and the download.
  */
 export default function Hero() {
   return (
-    <section className="pt-32 pb-20 sm:pt-40">
-      <div className="shell grid items-center gap-14 lg:grid-cols-[46fr_54fr]">
-        <div className="reveal min-w-0">
-          <p className="eyebrow">Free &amp; open source · v{VERSION}</p>
+    <section className="pt-32 pb-10 sm:pt-40">
+      <div className="shell text-center">
+        <p className="eyebrow reveal">Free &amp; open source · v{VERSION}</p>
 
-          <h1 className="display mt-4 max-w-[15ch]">
-            Screenshots and screen recording for macOS.
-          </h1>
+        <h1 className="display reveal mx-auto mt-4 max-w-[18ch]">
+          Screenshots and screen recording for macOS.
+        </h1>
 
-          <p className="mt-5 max-w-[52ch] text-[16px] text-slate">
-            Potret lives in your menu bar. Capture an area, a window or the
-            whole screen — then annotate it, pin it, or drag it straight into
-            another app. Record your screen with click highlighting and trim it
-            on a real timeline. No subscription, no account, no telemetry.
-          </p>
+        <p className="reveal mx-auto mt-5 max-w-[58ch] text-[16px] text-slate">
+          Potret lives in your menu bar. Capture an area, a window or the whole
+          screen — then annotate it, pin it, or drag it straight into another
+          app. Record your screen with click highlighting and trim it on a real
+          timeline. No subscription, no account, no telemetry.
+        </p>
 
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <a href={DMG} className="btn btn-primary">
-              <AppleMark />
-              Download for macOS
-            </a>
-            <a href={RELEASES} className="btn btn-ghost">
-              All releases
-            </a>
-          </div>
-
-          <div className="mt-5 max-w-[560px]">
-            <CopyLine command={BREW} />
-          </div>
-
-          <dl className="mt-8 flex flex-wrap gap-x-8 gap-y-3">
-            {SPECS.map((spec) => (
-              <div key={spec.label}>
-                <dt className="text-[12px] text-graphite">{spec.label}</dt>
-                <dd className="text-[14px] font-medium text-ink">
-                  {spec.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
+        <div className="reveal mt-8 flex flex-wrap items-center justify-center gap-3">
+          <a href={DMG} className="btn btn-primary">
+            <AppleMark />
+            Download for macOS
+          </a>
+          <a href={RELEASES} className="btn btn-ghost">
+            All releases
+          </a>
         </div>
 
-        <div className="reveal min-w-0" style={{ transitionDelay: "120ms" }}>
-          <Desktop>
-            {/* Inset from the top so the window clears the menu bar, and off
-                centre the way a window you actually opened would sit. */}
-            {/* Sized by height, not width: the shot is 3:2 and the desktop is
-                16:10, so a width-based fit runs the window under the dock. */}
-            <img
-              src="/shot-home.png"
-              alt="The Potret window on a Mac desktop: a gallery of captures grouped by day, with a sidebar and a capture toolbar."
-              className="absolute left-1/2 top-[10.5%] h-[71%] w-auto -translate-x-1/2 rounded-[0.5em]"
-              style={{ boxShadow: "0 24px 50px -12px rgba(0,0,0,.55)" }}
-            />
-          </Desktop>
+        <div className="reveal mx-auto mt-5 max-w-[440px] text-left">
+          <CopyLine command={BREW} />
         </div>
+
+        <dl className="reveal mt-8 flex flex-wrap justify-center gap-x-10 gap-y-3">
+          {SPECS.map((spec) => (
+            <div key={spec.label}>
+              <dt className="text-[12px] text-graphite">{spec.label}</dt>
+              <dd className="text-[14px] font-medium text-ink">{spec.value}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </section>
   );

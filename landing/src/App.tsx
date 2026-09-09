@@ -1,5 +1,6 @@
 import Nav from "./components/Nav";
 import Hero from "./sections/Hero";
+import Showcase from "./sections/Showcase";
 import Modes from "./sections/Modes";
 import Reach from "./sections/Reach";
 import Features from "./sections/Features";
@@ -16,6 +17,7 @@ export default function App() {
       <Nav />
       <main id="top">
         <Hero />
+        <Showcase />
         <Modes />
         <Reach />
         <Features />
