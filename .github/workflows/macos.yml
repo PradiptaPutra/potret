@@ -21,9 +21,11 @@ concurrency:
 
 jobs:
   build-and-test:
-    # macos-14 matches the deployment target, so an accidental use of a newer API is caught here
-    # rather than by a user on Sonoma.
-    runs-on: macos-14
+    # macos-15, not macos-14: the package is swift-tools-version 6.0 and the macos-14 image ships
+    # Swift 5.10, which refuses to read the manifest at all. Running on a newer OS than the
+    # deployment target costs nothing here — `platforms: [.macOS(.v14)]` is what makes the
+    # compiler reject a newer API, and that holds whichever OS the runner is on.
+    runs-on: macos-15
     defaults:
       run:
         working-directory: macos
