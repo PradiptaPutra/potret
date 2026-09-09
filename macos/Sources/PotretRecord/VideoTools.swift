@@ -53,7 +53,37 @@ public enum VideoTools {
             start: CMTime(seconds: start, preferredTimescale: 600),
             end: CMTime(seconds: end, preferredTimescale: 600)
         )
-        try await session.export(to: outputURL, as: .mp4)
+
+        // `export(to:as:)` is macOS 15 and later. This app supports 14, and the macOS 15 SDK
+        // rejects the call outright — but the macOS 26 SDK compiles it against a 14 deployment
+        // target without a word, so a build made on a current machine would have shipped a
+        // trimmer that fails on Sonoma. The older pair works on every version we support.
+        if #available(macOS 15, *) {
+            try await session.export(to: outputURL, as: .mp4)
+            return
+        }
+
+        session.outputURL = outputURL
+        session.outputFileType = .mp4
+        await session.export()
+
+        switch session.status {
+        case .completed:
+            return
+        case .cancelled:
+            throw RecordingError.writerFailed(
+                NSError(domain: "Potret", code: -4, userInfo: [
+                    NSLocalizedDescriptionKey: "The trim was cancelled.",
+                ])
+            )
+        default:
+            throw RecordingError.writerFailed(
+                session.error
+                    ?? NSError(domain: "Potret", code: -5, userInfo: [
+                        NSLocalizedDescriptionKey: "The trim did not finish.",
+                    ])
+            )
+        }
     }
 
     /// Export a range as an animated GIF.
