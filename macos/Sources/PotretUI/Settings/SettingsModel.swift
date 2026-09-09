@@ -72,6 +72,18 @@ public final class SettingsModel {
             write { $0.recordingCountdown = value }
         }
     }
+    public var recordingQuality = "standard" {
+        didSet {
+            let value = recordingQuality
+            write { $0.recordingQuality = value }
+        }
+    }
+    public var recordingFrameRate = 30 {
+        didSet {
+            let value = recordingFrameRate
+            write { $0.recordingFrameRate = value }
+        }
+    }
     public private(set) var savePath: String?
     public private(set) var permissionGranted = false
     public private(set) var historyBytes = 0
@@ -116,6 +128,8 @@ public final class SettingsModel {
             recordingShowsCursor = config.recordingShowsCursor
             recordingHighlightsClicks = config.recordingHighlightsClicks
             recordingCountdown = config.clampedRecordingCountdown
+            recordingQuality = config.recordingQuality
+            recordingFrameRate = config.clampedRecordingFrameRate
             permissionGranted = CapturePermission.isGranted
             launchAtLogin = LoginItem.isEnabled
             historyBytes = (try? historyStore.totalBytes()) ?? 0

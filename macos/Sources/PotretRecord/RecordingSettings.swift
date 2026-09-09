@@ -9,10 +9,23 @@ public struct RecordingSettings: Equatable, Sendable {
         case high
 
         /// Bits per second per megapixel, applied to the actual output size.
+        ///
+        /// Tuned for screen content, which is not video: it is thin strokes and small text on
+        /// flat fields, and it falls apart at rates that look fine for camera footage. The first
+        /// numbers here were 4 and 9 million, and a full-screen recording of a text editor came
+        /// out visibly mushy — around 16 Mbps at a typical screen size is where glyph edges stop
+        /// smearing.
         var bitrateScale: Double {
             switch self {
-            case .standard: 4_000_000
-            case .high: 9_000_000
+            case .standard: 7_000_000
+            case .high: 14_000_000
+            }
+        }
+
+        public var label: String {
+            switch self {
+            case .standard: "Standard"
+            case .high: "High"
             }
         }
     }

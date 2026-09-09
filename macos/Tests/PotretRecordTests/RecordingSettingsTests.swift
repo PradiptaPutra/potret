@@ -15,6 +15,20 @@ struct RecordingSettingsTests {
         #expect(large > small * 20)
     }
 
+    @Test("A full screen gets a bitrate screen text survives")
+    func bitrateIsEnoughForText() {
+        // Screen content is thin strokes and small type on flat fields, and it falls apart at
+        // rates that look fine for camera footage. The original 4 Mbit/megapixel put a
+        // 1920x1200 recording near 9 Mbps, where glyph edges visibly smeared.
+        let screen = CGSize(width: 1920, height: 1200)
+        let standard = RecordingSettings(quality: .standard).bitrate(for: screen)
+        let high = RecordingSettings(quality: .high).bitrate(for: screen)
+
+        #expect(standard >= 15_000_000)
+        #expect(high >= 30_000_000)
+        #expect(high > standard)
+    }
+
     @Test("A tiny region still gets a usable bitrate")
     func bitrateHasAFloor() {
         // Without a floor, a 100x100 region computes a bitrate low enough to be unwatchable.

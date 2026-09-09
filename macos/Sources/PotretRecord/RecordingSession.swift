@@ -90,7 +90,10 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
                 throw RecordingError.targetUnavailable
             }
             filter = SCContentFilter(desktopIndependentWindow: window)
-            let scale = content.displays.first.map(Self.scaleFactor(for:)) ?? 2
+            // The scale of the display the window is actually on, not whichever display happens
+            // to be first. On a mixed 1x/2x setup the first one is a coin flip, and guessing
+            // wrong halves or doubles the recorded resolution.
+            let scale = Self.scaleFactor(forWindowAt: window.frame, in: content)
             // Window frames are routinely odd-sized (a browser at 1237x811 is typical), and H.264
             // requires even dimensions — the writer accepts every frame and then fails at finish.
             // The region path already rounded; this one did not, which is why recording a window
@@ -186,6 +189,20 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
         )
     }
 
+    /// The backing scale of whichever display holds most of a window.
+    ///
+    /// `SCWindow.frame` and `SCDisplay.frame` come from the same call and so share a coordinate
+    /// space, which is what makes comparing them safe here.
+    private static func scaleFactor(
+        forWindowAt frame: CGRect, in content: SCShareableContent
+    ) -> CGFloat {
+        let frames = content.displays.map(\.frame)
+        guard let index = CoordinateSpace.dominantDisplay(for: frame, among: frames) else {
+            return content.displays.first.map(scaleFactor(for:)) ?? 2
+        }
+        return scaleFactor(for: content.displays[index])
+    }
+
     private static func scaleFactor(for display: SCDisplay) -> CGFloat {
         guard let mode = CGDisplayCopyDisplayMode(display.displayID), display.width > 0 else {
             return 1
@@ -202,6 +219,10 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(settings.frameRate))
         configuration.showsCursor = settings.showsCursor
         configuration.colorSpaceName = CGColorSpace.sRGB
+        // Ask for the real pixels. The still-capture path has always set this; the recording path
+        // never did, and the default lets ScreenCaptureKit hand back nominal — point-sized —
+        // frames. On a Retina display that is half the resolution, silently.
+        configuration.captureResolution = .best
         // Room for the writer to fall behind briefly without SCStream dropping frames outright.
         configuration.queueDepth = 6
         if let sourceRect {
@@ -339,6 +360,10 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
                     // Two seconds between keyframes: scrubbing and trimming stay responsive
                     // without inflating the file the way an all-keyframe stream would.
                     AVVideoMaxKeyFrameIntervalDurationKey: 2,
+                    // High profile rather than whatever the encoder picks by default. It costs
+                    // nothing on any Mac that can play an MP4 and it is markedly better at the
+                    // hard edges screen content is made of.
+                    AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                 ],
             ]
         )

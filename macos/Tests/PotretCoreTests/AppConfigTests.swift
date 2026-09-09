@@ -103,6 +103,20 @@ struct AppConfigTests {
         #expect(String(decoding: data, as: UTF8.self).contains("recording_shows_cursor"))
     }
 
+    @Test("Recording quality and frame rate round-trip, and nonsense is clamped")
+    func recordingQualityPersists() throws {
+        #expect(try decode("{}").recordingQuality == "standard")
+        #expect(try decode("{}").clampedRecordingFrameRate == 30)
+        #expect(try decode(#"{"recording_quality":"high"}"#).recordingQuality == "high")
+        #expect(try decode(#"{"recording_frame_rate":60}"#).clampedRecordingFrameRate == 60)
+        // A hand-edited rate the encoder cannot honour is pulled back to one that works, rather
+        // than being handed on as an expected source frame rate.
+        #expect(try decode(#"{"recording_frame_rate":240}"#).clampedRecordingFrameRate == 60)
+        #expect(try decode(#"{"recording_frame_rate":7}"#).clampedRecordingFrameRate == 30)
+        #expect(try decode(#"{"recording_countdown":99}"#).clampedRecordingCountdown == 10)
+        #expect(try decode(#"{"recording_countdown":-4}"#).clampedRecordingCountdown == 0)
+    }
+
     @Test("Save directory has exactly one fallback")
     func saveDirectoryFallback() {
         // The Tauri app claimed "Default (App Support)" in Settings while writing to the Desktop.

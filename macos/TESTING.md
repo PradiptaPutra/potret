@@ -91,6 +91,11 @@ No UI automation is available, so these are a real checklist, not a formality.
 - [ ] Rings appear in the file and never on screen while recording
 - [ ] The countdown runs before area, window and screen recordings alike
 - [ ] With highlighting off, frames are byte-identical to the untouched stream path
+- [ ] On a Retina display, a recording's pixel size is the point size times the backing scale —
+      not the point size, which is what a nominal-resolution stream would give
+- [ ] A window on a 2x display recorded while the 1x display is first in the list is still
+      captured at 2x
+- [ ] High quality produces a visibly larger file than Standard on the same moving content
 
 **Trimming**
 - [ ] Saving a trim shortens the entry in the library — the grid and the corner stack stop

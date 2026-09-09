@@ -29,6 +29,12 @@ public struct AppConfig: Codable, Equatable, Sendable {
     /// Seconds counted down before a recording starts, so there is time to arrange the window
     /// being demonstrated. Zero starts immediately.
     public var recordingCountdown: Int
+    /// "standard" or "high". A string rather than an enum because the quality type lives in
+    /// PotretRecord, and Core must not depend on it — the dependency chain only runs the other
+    /// way. Anything unrecognised falls back to standard.
+    public var recordingQuality: String
+    /// Frames per second. 60 is worth it for a demo of something that animates.
+    public var recordingFrameRate: Int
 
     public enum ImageFormat: String, Codable, Sendable, CaseIterable {
         case png
@@ -49,6 +55,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         case recordingShowsCursor = "recording_shows_cursor"
         case recordingHighlightsClicks = "recording_highlight_clicks"
         case recordingCountdown = "recording_countdown"
+        case recordingQuality = "recording_quality"
+        case recordingFrameRate = "recording_frame_rate"
     }
 
     // NOT Cmd+Shift+3/4/5: macOS owns those for its own screenshot tools and swallows the
@@ -68,7 +76,9 @@ public struct AppConfig: Codable, Equatable, Sendable {
         retentionLimit: 200,
         recordingShowsCursor: true,
         recordingHighlightsClicks: true,
-        recordingCountdown: 3
+        recordingCountdown: 3,
+        recordingQuality: "standard",
+        recordingFrameRate: 30
     )
 
     public init(
@@ -84,7 +94,9 @@ public struct AppConfig: Codable, Equatable, Sendable {
         retentionLimit: Int = 200,
         recordingShowsCursor: Bool = true,
         recordingHighlightsClicks: Bool = true,
-        recordingCountdown: Int = 3
+        recordingCountdown: Int = 3,
+        recordingQuality: String = "standard",
+        recordingFrameRate: Int = 30
     ) {
         self.shortcutArea = shortcutArea
         self.shortcutWindow = shortcutWindow
@@ -99,6 +111,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.recordingShowsCursor = recordingShowsCursor
         self.recordingHighlightsClicks = recordingHighlightsClicks
         self.recordingCountdown = recordingCountdown
+        self.recordingQuality = recordingQuality
+        self.recordingFrameRate = recordingFrameRate
     }
 
     public init(from decoder: any Decoder) throws {
@@ -130,10 +144,20 @@ public struct AppConfig: Codable, Equatable, Sendable {
         recordingCountdown =
             (try? container.decodeIfPresent(Int.self, forKey: .recordingCountdown))
             .flatMap { $0 } ?? fallback.recordingCountdown
+        recordingQuality =
+            (try? container.decodeIfPresent(String.self, forKey: .recordingQuality))
+            .flatMap { $0 } ?? fallback.recordingQuality
+        recordingFrameRate =
+            (try? container.decodeIfPresent(Int.self, forKey: .recordingFrameRate))
+            .flatMap { $0 } ?? fallback.recordingFrameRate
     }
 
     /// Clamped so a hand-edited config cannot leave the user staring at a countdown.
     public var clampedRecordingCountdown: Int { min(max(recordingCountdown, 0), 10) }
+
+    /// Only the two rates the UI offers. An arbitrary number here would be handed straight to
+    /// the encoder as an expected source frame rate it cannot honour.
+    public var clampedRecordingFrameRate: Int { recordingFrameRate >= 60 ? 60 : 30 }
 
     /// The retention policy the user chose. This used to be hardcoded to 200 at launch and after
     /// every capture, so the Settings control changed nothing that lasted past a relaunch.

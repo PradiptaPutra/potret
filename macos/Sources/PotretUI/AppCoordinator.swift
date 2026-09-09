@@ -494,6 +494,9 @@ public final class AppCoordinator {
         let config = await configStore.current
         cachedConfig = config
         return RecordingSettings(
+            frameRate: config.clampedRecordingFrameRate,
+            // Anything unrecognised in a hand-edited config falls back rather than failing.
+            quality: RecordingSettings.Quality(rawValue: config.recordingQuality) ?? .standard,
             showsCursor: config.recordingShowsCursor,
             highlightsClicks: config.recordingHighlightsClicks
         )

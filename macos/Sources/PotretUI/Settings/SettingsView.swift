@@ -85,6 +85,20 @@ public struct SettingsView: View {
             }
 
             Section {
+                LabeledContent("Quality") {
+                    Picker("", selection: $model.recordingQuality) {
+                        Text("Standard").tag("standard")
+                        Text("High").tag("high")
+                    }
+                    .labelsHidden()
+                }
+                LabeledContent("Frame rate") {
+                    Picker("", selection: $model.recordingFrameRate) {
+                        Text("30 fps").tag(30)
+                        Text("60 fps").tag(60)
+                    }
+                    .labelsHidden()
+                }
                 Toggle("Show the pointer", isOn: $model.recordingShowsCursor)
                 Toggle("Highlight clicks", isOn: $model.recordingHighlightsClicks)
                 LabeledContent("Countdown") {
