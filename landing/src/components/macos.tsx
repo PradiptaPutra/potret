@@ -140,15 +140,93 @@ function Spotlight() {
   );
 }
 
-/** Squircle tiles with a hint of a glyph, running dots, and Trash past the
- *  divider — the three cues that make a row of coloured squares read as a Dock. */
-const DOCK = [
-  { background: "linear-gradient(160deg,#7cc4ff,#2563eb)", glyph: "M4 11h8M8 7v8", running: true },
-  { background: "linear-gradient(160deg,#9be79b,#22a06b)", glyph: "M4.5 8.5h7M4.5 11h4.5", running: true },
-  { background: "linear-gradient(160deg,#ffe08a,#f59e0b)", glyph: "M8 4.5v7M5 8.5l3 3 3-3", running: false },
-  { background: "linear-gradient(160deg,#ffa3a3,#e5484d)", glyph: "M5 5.5h6v6H5z", running: false },
-  { background: "linear-gradient(160deg,#d5c7ff,#7c3aed)", glyph: "M8 4.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z", running: true },
-  { background: "linear-gradient(160deg,#8ff0e2,#0d9488)", glyph: "M4.5 10.5 7 7l2 2.4L11.5 6", running: false },
+/** Squircle tiles carrying the apps a capture actually gets dropped into,
+ *  running dots, and Trash past the divider — the three cues that make a row
+ *  of coloured squares read as a Dock.
+ *
+ *  The marks are drawn from scratch at this size rather than imported as
+ *  brand assets: a dock icon here is ~30px wide, where a faithful logo turns
+ *  to mush and a simplified one still reads instantly. */
+type DockApp = {
+  name: string;
+  background: string;
+  art: ReactNode;
+  /** Chrome's disc is the whole icon; most marks sit inset like real artwork. */
+  inset?: string;
+  running?: boolean;
+};
+
+const CLAUDE = "#d97757";
+const NOTION_INK = "#191918";
+
+const DOCK: DockApp[] = [
+  {
+    name: "Claude",
+    background: `linear-gradient(160deg,#e08b6c,${CLAUDE})`,
+    running: true,
+    art: (
+      <g stroke="#faf7f2" strokeWidth="1.35" strokeLinecap="round">
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((angle, i) => {
+          const reach = i % 2 ? 4.6 : 6.2;
+          const radians = (angle * Math.PI) / 180;
+          return (
+            <line
+              key={angle}
+              x1={8}
+              y1={8}
+              x2={8 + Math.cos(radians) * reach}
+              y2={8 + Math.sin(radians) * reach}
+            />
+          );
+        })}
+      </g>
+    ),
+  },
+  {
+    name: "ChatGPT",
+    background: "linear-gradient(160deg,#2b2b2b,#0b0b0b)",
+    running: true,
+    art: (
+      <g fill="none" stroke="#ffffff" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round">
+        <path d="M8 2.4 12.9 5.2v5.6L8 13.6 3.1 10.8V5.2Z" />
+        <path d="M8 2.4V8l4.9 2.8M8 8 3.1 5.2" />
+      </g>
+    ),
+  },
+  {
+    name: "Grok",
+    background: "linear-gradient(160deg,#242424,#000000)",
+    art: (
+      <g fill="#ffffff">
+        <path d="M4.1 12.6 10.4 4.2h1.8L5.9 12.6Z" />
+        <path d="M8.6 12.6 11.1 9.2h1.8l-2.5 3.4Z" />
+      </g>
+    ),
+  },
+  {
+    name: "Chrome",
+    background: "linear-gradient(160deg,#ffffff,#e6e9ec)",
+    inset: "6%",
+    running: true,
+    art: (
+      <g>
+        <path d="M8 8 2.8 5A6 6 0 0 1 13.2 5Z" fill="#ea4335" />
+        <path d="M8 8 13.2 5A6 6 0 0 1 8 14Z" fill="#fbbc05" />
+        <path d="M8 8v6A6 6 0 0 1 2.8 5Z" fill="#34a853" />
+        <circle cx="8" cy="8" r="3.3" fill="#ffffff" />
+        <circle cx="8" cy="8" r="2.5" fill="#4285f4" />
+      </g>
+    ),
+  },
+  {
+    name: "Notion",
+    background: "linear-gradient(160deg,#ffffff,#eceae5)",
+    art: (
+      <g fill="none" stroke={NOTION_INK} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M5.2 11.6V4.9l5.6 6.4V4.6" />
+      </g>
+    ),
+  },
 ];
 
 export function Dock() {
@@ -166,8 +244,8 @@ export function Dock() {
           boxShadow: "inset 0 1px 0 rgba(255,255,255,.22), 0 0.6cqw 1.4cqw rgba(0,0,0,.28)",
         }}
       >
-        {DOCK.map((tile, index) => (
-          <Tile key={index} {...tile} />
+        {DOCK.map((app) => (
+          <Tile key={app.name} {...app} />
         ))}
         <span
           style={{
@@ -177,21 +255,21 @@ export function Dock() {
             background: "rgba(255,255,255,.28)",
           }}
         />
-        <Tile background="linear-gradient(160deg,#cfd6de,#8a939d)" glyph="M5 6h6l-.6 6H5.6zM6.4 6V4.8h3.2V6" running={false} />
+        <Tile
+          name="Trash"
+          background="linear-gradient(160deg,#cfd6de,#8a939d)"
+          art={
+            <g fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 6h6l-.6 6H5.6zM6.4 6V4.8h3.2V6" />
+            </g>
+          }
+        />
       </div>
     </div>
   );
 }
 
-function Tile({
-  background,
-  glyph,
-  running,
-}: {
-  background: string;
-  glyph: string;
-  running: boolean;
-}) {
+function Tile({ background, art, inset = "22%", running = false }: DockApp) {
   return (
     <span className="relative block" style={{ width: "2.9cqw" }}>
       <span
@@ -207,8 +285,8 @@ function Tile({
       >
         {/* Inset, the way a real icon's artwork sits inside its tile rather
             than running to the edge. */}
-        <svg viewBox="0 0 16 16" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="1.5" strokeLinecap="round" style={{ width: "100%", height: "100%", padding: "22%" }} aria-hidden="true">
-          <path d={glyph} />
+        <svg viewBox="0 0 16 16" style={{ width: "100%", height: "100%", padding: inset }} aria-hidden="true">
+          {art}
         </svg>
       </span>
       {running ? (
