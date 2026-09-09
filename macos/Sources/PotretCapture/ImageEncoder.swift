@@ -50,7 +50,10 @@ public enum ImageEncoder: Sendable {
     /// `CGImageSourceCreateThumbnailAtIndex` uses the hardware path and decodes only what it
     /// needs, so it is markedly cheaper than decoding the full image and resampling — which is
     /// what the Tauri backend did for every history row.
-    public static func thumbnail(from data: Data, maxPixelSize: Int = 640) throws -> CGImage {
+    /// - Parameter maxPixelSize: longest edge, in pixels. 1024 rather than 640 because a card in
+    ///   the home grid can be 260 points wide, which is 520 pixels on a Retina display and more
+    ///   again once the window is widened — at 640 the grid was resampling a thumbnail upward.
+    public static func thumbnail(from data: Data, maxPixelSize: Int = 1024) throws -> CGImage {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
             throw EncodeError.decodeFailed
         }

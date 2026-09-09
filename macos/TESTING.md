@@ -97,6 +97,14 @@ No UI automation is available, so these are a real checklist, not a formality.
       captured at 2x
 - [ ] High quality produces a visibly larger file than Standard on the same moving content
 
+**Trim window**
+- [ ] Both handles are grabbable at the extremes — a selection covering the whole recording
+      still has a draggable handle at each end
+- [ ] Dragging a handle moves that edge; dragging the clip itself scrubs
+- [ ] Ruler tick spacing stays readable at every zoom level and every recording length
+- [ ] At zoom > 1 the track scrolls, and a handle drag still lands where the pointer is
+- [ ] The traffic lights sit on the header material, not on a strip above it
+
 **Trimming**
 - [ ] Saving a trim shortens the entry in the library — the grid and the corner stack stop
       offering the full-length take, and its thumbnail is a frame that survived the cut

@@ -78,6 +78,16 @@ public enum TypeRamp {
     }
 }
 
+/// The one brand colour: the amber of the aperture in the app's icon.
+///
+/// Everything else in the interface comes from the system — the accent colour, the label
+/// hierarchy, the separators — so that Light, Dark, Increase Contrast and a non-blue accent all
+/// work without a second palette. This is the exception, because a brand mark that changes colour
+/// with the user's accent setting is not a brand mark.
+public enum Brand {
+    public static let amber = Color(red: 1, green: 0.72, blue: 0.20)
+}
+
 public enum Motion {
     /// Every animation goes through here so Reduce Motion is honoured in exactly one place.
     private static var reduced: Bool {

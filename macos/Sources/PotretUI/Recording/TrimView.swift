@@ -16,7 +16,7 @@ public final class TrimModel {
     public var end: TimeInterval
     public var isExporting = false
     public var status: String?
-    /// Thumbnails sampled evenly across the recording — the scrubber is the recording itself.
+    /// Thumbnails sampled evenly across the recording — the timeline is the recording itself.
     public private(set) var frames: [NSImage] = []
     public private(set) var currentTime: TimeInterval = 0
     public private(set) var isPlaying = false
@@ -36,7 +36,7 @@ public final class TrimModel {
 
     public var trimmedDuration: TimeInterval { max(0, end - start) }
 
-    /// Whether trimming would change anything, so Save can say what it will do.
+    /// Whether trimming would change anything, so Export can say what it will do.
     public var isTrimmed: Bool {
         start > 0.05 || end < duration - 0.05
     }
@@ -50,6 +50,11 @@ public final class TrimModel {
             height: pixelSize.height * scale
         )
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
+    /// "1920 × 1200 · 0:32", for the header.
+    public var summary: String {
+        "\(Int(pixelSize.width)) × \(Int(pixelSize.height)) · \(Clock.short(duration))"
     }
 
     // MARK: Playback
@@ -83,9 +88,9 @@ public final class TrimModel {
     }
 
     public func seek(_ time: TimeInterval) {
-        currentTime = time
+        currentTime = min(max(time, 0), duration)
         player.seek(
-            to: CMTime(seconds: time, preferredTimescale: 600),
+            to: CMTime(seconds: currentTime, preferredTimescale: 600),
             toleranceBefore: .zero,
             toleranceAfter: .zero
         )
@@ -108,29 +113,49 @@ public final class TrimModel {
         isPlaying = true
     }
 
+    /// Nudge the playhead, staying inside the selection — outside it is footage being discarded,
+    /// so stepping there is never what was meant.
+    public func step(by seconds: TimeInterval) {
+        pause()
+        seek(min(max(currentTime + seconds, start), end))
+    }
+
+    public func goToStart() {
+        pause()
+        seek(start)
+    }
+
+    public func goToEnd() {
+        pause()
+        seek(end)
+    }
+
+    private func pause() {
+        player.pause()
+        isPlaying = false
+    }
+
     /// Move a handle. Dragging pauses playback and previews the new edge, so the frame under the
     /// pointer is the frame that will be the cut.
     public func setStart(_ time: TimeInterval) {
-        player.pause()
-        isPlaying = false
+        pause()
         start = min(max(0, time), end - 0.25)
         seek(start)
     }
 
     public func setEnd(_ time: TimeInterval) {
-        player.pause()
-        isPlaying = false
+        pause()
         end = max(min(duration, time), start + 0.25)
         seek(end)
     }
 
     // MARK: Frames
 
-    /// How many thumbnails the strip is worth for this recording.
+    /// How many thumbnails the timeline is worth for this recording.
     ///
     /// A fixed 24 was fine for a ten-second clip and useless for a ten-minute one, where it left
-    /// one frame every twenty-five seconds and the strip stopped previewing anything. Roughly one
-    /// per second and a half, bounded at both ends: enough to see, few enough to generate quickly.
+    /// one frame every twenty-five seconds. Roughly one per second and a half, bounded at both
+    /// ends: enough to see, few enough to generate quickly.
     public var frameCount: Int {
         min(max(Int(duration / 1.5), 12), 80)
     }
@@ -167,7 +192,7 @@ public final class TrimModel {
 /// Not SwiftUI's `VideoPlayer`: that type lives in the `_AVKit_SwiftUI` cross-import overlay, and
 /// this project builds tests with `-disable-cross-import-overlays` (the only way to import Testing
 /// and Foundation together on a toolchain without Xcode — see TESTING.md). Controls are off; the
-/// HUD is the transport.
+/// timeline is the transport.
 struct PlayerView: NSViewRepresentable {
     let player: AVPlayer
 
@@ -185,12 +210,11 @@ struct PlayerView: NSViewRepresentable {
     }
 }
 
-/// Review and trim a recording.
+/// Review and trim a recording: header, player, timeline.
 ///
-/// The video fills the window; everything else floats over the bottom of it. The scrubber is a
-/// filmstrip of the recording itself with drag handles at each end, QuickTime-style — you see
-/// what you are cutting rather than reading a number. Playback loops inside the selection, so
-/// what plays is what will be saved.
+/// Laid out like an editing application rather than a viewer with a slider — the timeline is its
+/// own surface, carrying a time ruler, the recording as a clip with grab handles at each end, and
+/// a transport. Playback loops inside the selection, so what plays is what will be saved.
 public struct TrimView: View {
     @Bindable var model: TrimModel
     /// The finished file, plus the trimmed length when the recording was actually cut. A
@@ -199,6 +223,11 @@ public struct TrimView: View {
     let onSave: (URL, TimeInterval?) -> Void
     let onExportGIF: (URL) -> Void
     let onDiscard: () -> Void
+
+    /// How far the timeline is stretched. A thirty-second clip needs none; a ten-minute one is
+    /// unusable without it, because a tenth of a second is a fraction of a pixel.
+    @State private var zoom: CGFloat = 1
+    private static let zoomLevels: [CGFloat] = [1, 2, 4, 8]
 
     public init(
         model: TrimModel,
@@ -213,15 +242,15 @@ public struct TrimView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .bottom) {
+        VStack(spacing: 0) {
+            header
             PlayerView(player: model.player)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            hud
-                .padding(Space.m)
+                .background(.black)
+            timeline
         }
-        .background(.black)
-        .frame(minWidth: 720, minHeight: 480)
+        .frame(minWidth: 760, minHeight: 520)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             model.loadFrames()
             model.startObserving()
@@ -230,62 +259,148 @@ public struct TrimView: View {
         .onDisappear { model.stop() }
     }
 
-    private var hud: some View {
-        VStack(spacing: Space.m) {
-            FilmstripScrubber(model: model)
+    // MARK: Header
 
-            HStack(spacing: Space.m) {
-                Button {
-                    model.togglePlayback()
-                } label: {
-                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                        .font(TypeRamp.heading)
-                        .frame(width: Space.xxl, height: Space.xxl)
-                        .background(.white.opacity(0.14), in: Circle())
+    private var header: some View {
+        HStack(spacing: Space.s) {
+            Image(systemName: "scissors")
+                .foregroundStyle(Brand.amber)
+            Text("Recording").font(TypeRamp.heading)
+            Text(model.summary)
+                .font(TypeRamp.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: Space.m)
+
+            if let status = model.status {
+                HStack(spacing: Space.xs) {
+                    ProgressView().controlSize(.small)
+                    Text(status).font(TypeRamp.caption).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help(model.isPlaying ? "Pause" : "Play selection")
-                .keyboardShortcut(.space, modifiers: [])
+            }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(Clock.precise(model.start)) – \(Clock.precise(model.end))")
-                        .font(TypeRamp.mono)
-                    Text(model.status ?? "\(Clock.precise(model.trimmedDuration)) selected")
-                        .font(TypeRamp.caption)
-                        .foregroundStyle(.secondary)
-                }
+            // One action, with the format as a choice inside it rather than a second button.
+            Menu {
+                Button(model.isTrimmed ? "Export Trimmed Video" : "Export Video") { save() }
+                Button("Export as GIF (~\(model.gifEstimate))") { exportGIF() }
+            } label: {
+                Label(
+                    model.isTrimmed ? "Export Trimmed" : "Export",
+                    systemImage: "square.and.arrow.up"
+                )
+            } primaryAction: {
+                save()
+            }
+            .menuStyle(.button)
+            .buttonStyle(.borderedProminent)
+            .fixedSize()
+            .disabled(model.isExporting)
+            .keyboardShortcut(.defaultAction)
 
-                Spacer(minLength: 0)
+            Button {
+                onDiscard()
+            } label: {
+                Image(systemName: "xmark").frame(width: Space.l, height: Space.l)
+            }
+            .buttonStyle(.accessoryBar)
+            .help("Close")
+            .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, Space.l)
+        // Clears the traffic lights, which sit on this material rather than on a strip above it.
+        .padding(.top, MainWindowController.titleBarHeight - Space.xs)
+        .padding(.bottom, Space.s)
+    }
 
-                // One action. The format is a choice inside it rather than a second button.
-                Menu {
-                    Button("Save Video") { save() }
-                    Button("Save as GIF (~\(model.gifEstimate))") { exportGIF() }
-                } label: {
-                    Text(model.isTrimmed ? "Save Trimmed" : "Save")
-                } primaryAction: {
-                    save()
-                }
-                .menuStyle(.button)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .disabled(model.isExporting)
-                .keyboardShortcut(.defaultAction)
+    // MARK: Timeline
 
-                Button {
-                    onDiscard()
-                } label: {
-                    Image(systemName: "xmark")
-                        .frame(width: Space.l, height: Space.l)
-                }
-                .buttonStyle(.accessoryBar)
-                .help("Close")
-                .keyboardShortcut(.cancelAction)
+    private var timeline: some View {
+        VStack(spacing: Space.s) {
+            transport
+            TimelineTrack(model: model, zoom: zoom)
+            edges
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.vertical, Space.m)
+        .background(VisualEffect(.sidebar))
+    }
+
+    private var transport: some View {
+        HStack(spacing: Space.m) {
+            transportButton("backward.end.fill", "Go to start") { model.goToStart() }
+            transportButton("gobackward.5", "Back 5 seconds") { model.step(by: -5) }
+
+            Button {
+                model.togglePlayback()
+            } label: {
+                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    .font(TypeRamp.heading)
+                    .frame(width: Space.xxl, height: Space.xxl)
+                    .background(Color.primary.opacity(0.12), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(model.isPlaying ? "Pause" : "Play selection")
+            .keyboardShortcut(.space, modifiers: [])
+
+            transportButton("goforward.5", "Forward 5 seconds") { model.step(by: 5) }
+            transportButton("forward.end.fill", "Go to end") { model.goToEnd() }
+
+            Spacer(minLength: Space.m)
+
+            HStack(spacing: Space.xs) {
+                Text(Clock.precise(model.currentTime)).font(TypeRamp.mono)
+                Text("/").foregroundStyle(.tertiary)
+                Text(Clock.precise(model.duration))
+                    .font(TypeRamp.mono)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: Space.m)
+
+            HStack(spacing: Space.xs) {
+                transportButton("minus.magnifyingglass", "Zoom out") { changeZoom(by: -1) }
+                    .disabled(zoom <= (Self.zoomLevels.first ?? 1))
+                transportButton("plus.magnifyingglass", "Zoom in") { changeZoom(by: 1) }
+                    .disabled(zoom >= (Self.zoomLevels.last ?? 1))
             }
         }
-        .padding(Space.m)
-        .potretSurface(.hud, radius: Radius.md)
     }
+
+    private func transportButton(
+        _ symbol: String, _ help: String, perform: @escaping () -> Void
+    ) -> some View {
+        Button(action: perform) {
+            Image(systemName: symbol)
+                .frame(width: Space.l, height: Space.l)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help(help)
+    }
+
+    private func changeZoom(by step: Int) {
+        guard let index = Self.zoomLevels.firstIndex(of: zoom) else { return }
+        let next = min(max(index + step, 0), Self.zoomLevels.count - 1)
+        withAnimation(Motion.quick) { zoom = Self.zoomLevels[next] }
+    }
+
+    /// The two cut points, and what survives between them.
+    private var edges: some View {
+        HStack {
+            Label(Clock.precise(model.start), systemImage: "arrow.right.to.line")
+            Spacer(minLength: 0)
+            Text("\(Clock.precise(model.trimmedDuration)) selected")
+                .foregroundStyle(Brand.amber)
+            Spacer(minLength: 0)
+            Label(Clock.precise(model.end), systemImage: "arrow.left.to.line")
+        }
+        .font(TypeRamp.mono)
+        .foregroundStyle(.secondary)
+    }
+
+    // MARK: Export
 
     private func save() {
         guard model.isTrimmed else {
@@ -322,7 +437,9 @@ public struct TrimView: View {
             // from a different range silently replaced the first.
             let output = TrimScratch.url(extension: "gif")
             do {
-                try await VideoTools.exportGIF(model.url, from: model.start, to: model.end, to: output)
+                try await VideoTools.exportGIF(
+                    model.url, from: model.start, to: model.end, to: output
+                )
                 model.isExporting = false
                 model.status = nil
                 onExportGIF(output)
@@ -356,131 +473,138 @@ enum TrimScratch {
     }
 }
 
-/// The recording as a strip of frames, with a bracket handle at each end and a playhead.
+/// Ruler, clip and playhead: the recording as something with a length, rather than a slider with
+/// a value.
 ///
-/// Every gesture reads the pointer's ABSOLUTE position in the strip's coordinate space. The first
+/// Every gesture reads the pointer's ABSOLUTE position in the track's coordinate space. The first
 /// version added the drag's translation to a handle position recomputed from the model on every
 /// frame — so each frame re-added the whole distance moved so far, and a handle shot to the edge
-/// the moment it was touched. Reading where the pointer actually is cannot compound.
-struct FilmstripScrubber: View {
+/// the moment it was touched. Reading where the pointer actually is cannot compound, and it keeps
+/// working when the track is wider than the window and scrolled.
+private struct TimelineTrack: View {
     @Bindable var model: TrimModel
-    private let height: CGFloat = 56
-    private let handleWidth: CGFloat = Space.l
-    private static let space = "filmstrip"
+    let zoom: CGFloat
+
+    private static let space = "timeline"
+    private let stripHeight: CGFloat = 60
+    private let handleWidth: CGFloat = Space.m
     @State private var hoveringHandle = false
 
     var body: some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let startX = width * CGFloat(model.start / model.duration)
-            let endX = width * CGFloat(model.end / model.duration)
-            let playheadX = width * CGFloat(min(max(model.currentTime, 0), model.duration) / model.duration)
-
-            ZStack(alignment: .leading) {
-                strip(width: width)
-                    .contentShape(Rectangle())
-                    // Click or drag on the strip to scrub.
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
-                            .onChanged { value in
-                                model.player.pause()
-                                model.seek(time(at: value.location.x, width: width))
-                            }
-                    )
-
-                // Dim what is cut.
-                Rectangle().fill(.black.opacity(0.6))
-                    .frame(width: max(0, startX), height: height)
-                    .allowsHitTesting(false)
-                Rectangle().fill(.black.opacity(0.6))
-                    .frame(width: max(0, width - endX), height: height)
-                    .offset(x: endX)
-                    .allowsHitTesting(false)
-
-                // Bracket around the selection, with its length on it — CapCut labels the clip.
-                Radius.shape(Radius.sm)
-                    .strokeBorder(Color.accentColor, lineWidth: 3)
-                    .frame(width: max(0, endX - startX), height: height)
-                    .offset(x: startX)
-                    .allowsHitTesting(false)
-                Text(Clock.precise(model.trimmedDuration))
-                    .font(TypeRamp.mono)
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Space.s)
-                    .padding(.vertical, 2)
-                    .background(Color.accentColor, in: Capsule())
-                    .frame(width: max(0, endX - startX), alignment: .center)
-                    .offset(x: startX, y: -(height / 2 + Space.m))
-                    .allowsHitTesting(false)
-
-                // Playhead.
-                Capsule()
-                    .fill(.white)
-                    .frame(width: 3, height: height + Space.s)
-                    .offset(x: playheadX - 1.5)
-                    .allowsHitTesting(false)
-                    .shadow(color: .black.opacity(0.5), radius: 1)
-
-                // Handles are fat and hang outside the selection, so they are easy to grab on a
-                // trackpad and never cover the first or last frame being kept.
-                handle(leading: true)
-                    .offset(x: startX - handleWidth)
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
-                            .onChanged { value in
-                                model.setStart(time(at: value.location.x, width: width))
-                            }
-                    )
-                    .help("Drag to set where the recording starts")
-
-                handle(leading: false)
-                    .offset(x: endX)
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
-                            .onChanged { value in
-                                model.setEnd(time(at: value.location.x, width: width))
-                            }
-                    )
-                    .help("Drag to set where the recording ends")
+        GeometryReader { outer in
+            // The clip is inset by one handle width at each end so a selection that reaches the
+            // very start or the very end still has somewhere to put its handle. Without the
+            // inset the leading handle sits at a negative offset, where the scroll view clips it
+            // and it cannot be grabbed at all — which is the state every recording opens in.
+            let full = max(outer.size.width, 1) * zoom
+            let width = max(full - handleWidth * 2, 1)
+            ScrollView(.horizontal, showsIndicators: zoom > 1) {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    Ruler(duration: model.duration, width: width)
+                        .padding(.leading, handleWidth)
+                    track(width: width, full: full)
+                }
+                .frame(width: full)
+                .coordinateSpace(name: Self.space)
             }
-            .coordinateSpace(name: Self.space)
+            .scrollDisabled(zoom == 1)
         }
-        .frame(height: height)
-        .padding(.horizontal, handleWidth)
-        // Room above for the duration pill.
-        .padding(.top, Space.l + Space.s)
-        .overlay(alignment: .bottom) {
-            // Where the whole recording starts and ends, under the strip.
-            HStack {
-                Text(Clock.precise(0))
-                Spacer()
-                Text(Clock.precise(model.duration))
-            }
-            .font(TypeRamp.caption)
-            .foregroundStyle(.tertiary)
-            .padding(.horizontal, handleWidth)
-            .offset(y: Space.l)
-        }
-        .padding(.bottom, Space.m)
+        .frame(height: stripHeight + Space.xl + Space.xs)
     }
 
+    /// The whole track, laid out at `full` width with the clip inset inside it.
+    ///
+    /// Everything is positioned in one container rather than padding the clip and letting the
+    /// handles hang past its edge. A view offset outside its parent's bounds is drawn but is not
+    /// reliably hit-tested, so the leading handle at a zero start looked present and could not be
+    /// grabbed — a drag on it scrubbed the playhead instead.
+    private func track(width: CGFloat, full: CGFloat) -> some View {
+        let inset = handleWidth
+        let startX = inset + width * CGFloat(model.start / model.duration)
+        let endX = inset + width * CGFloat(model.end / model.duration)
+        let playheadX = inset + width * CGFloat(
+            min(max(model.currentTime, 0), model.duration) / model.duration
+        )
+
+        return ZStack(alignment: .leading) {
+            strip(width: width)
+                .offset(x: inset)
+                .contentShape(Rectangle())
+                // Click or drag anywhere on the track to scrub.
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+                        .onChanged { value in
+                            model.player.pause()
+                            model.seek(time(at: value.location.x, width: width))
+                        }
+                )
+
+            // What is cut, dimmed.
+            Rectangle().fill(.black.opacity(0.62))
+                .frame(width: max(0, startX - inset), height: stripHeight)
+                .offset(x: inset)
+                .allowsHitTesting(false)
+            Rectangle().fill(.black.opacity(0.62))
+                .frame(width: max(0, inset + width - endX), height: stripHeight)
+                .offset(x: endX)
+                .allowsHitTesting(false)
+
+            // The kept range as a clip with ends, which is what an editor shows.
+            Radius.shape(Radius.sm)
+                .strokeBorder(Brand.amber, lineWidth: 2)
+                .frame(width: max(0, endX - startX), height: stripHeight)
+                .offset(x: startX)
+                .allowsHitTesting(false)
+
+            Capsule()
+                .fill(.white)
+                .frame(width: 2, height: stripHeight + Space.s)
+                .offset(x: playheadX - 1)
+                .allowsHitTesting(false)
+                .shadow(color: .black.opacity(0.6), radius: 2)
+
+            // Handles hang outside the selection, so they are easy to grab on a trackpad and
+            // never cover the first or last frame being kept.
+            handle(leading: true)
+                .offset(x: startX - handleWidth)
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+                        .onChanged { model.setStart(time(at: $0.location.x, width: width)) }
+                )
+                .help("Drag to set where the recording starts")
+
+            handle(leading: false)
+                .offset(x: endX)
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+                        .onChanged { model.setEnd(time(at: $0.location.x, width: width)) }
+                )
+                .help("Drag to set where the recording ends")
+        }
+        .frame(width: full, alignment: .leading)
+    }
+
+    /// `x` arrives in the scroll content's space, which includes the leading inset — so the
+    /// inset comes off before the position becomes a time.
     private func time(at x: CGFloat, width: CGFloat) -> TimeInterval {
         guard width > 0 else { return 0 }
-        return TimeInterval(min(max(x, 0), width) / width) * model.duration
+        let local = min(max(x - handleWidth, 0), width)
+        return TimeInterval(local / width) * model.duration
     }
 
     @ViewBuilder
     private func strip(width: CGFloat) -> some View {
         if model.frames.isEmpty {
             Radius.shape(Radius.sm).fill(.white.opacity(0.08))
-                .frame(width: width, height: height)
+                .frame(width: width, height: stripHeight)
         } else {
             HStack(spacing: 0) {
                 ForEach(Array(model.frames.enumerated()), id: \.offset) { _, frame in
                     Image(nsImage: frame)
                         .resizable()
+                        .interpolation(.high)
                         .scaledToFill()
-                        .frame(width: width / CGFloat(model.frames.count), height: height)
+                        .frame(width: width / CGFloat(model.frames.count), height: stripHeight)
                         .clipped()
                 }
             }
@@ -496,15 +620,14 @@ struct FilmstripScrubber: View {
             topTrailingRadius: leading ? 0 : Radius.sm,
             style: .continuous
         )
-        .fill(Color.accentColor)
-        .frame(width: handleWidth, height: height)
+        .fill(Brand.amber)
+        .frame(width: handleWidth, height: stripHeight)
         .overlay(
-            Image(systemName: leading ? "chevron.left" : "chevron.right")
-                .font(TypeRamp.caption)
-                .fontWeight(.bold)
-                .foregroundStyle(.white)
+            Capsule()
+                .fill(.black.opacity(0.55))
+                .frame(width: 2, height: stripHeight * 0.32)
         )
-        .brightness(hoveringHandle ? 0.15 : 0)
+        .brightness(hoveringHandle ? 0.12 : 0)
         .contentShape(Rectangle())
         // The pointer says "this slides sideways" before you grab it.
         .onHover { inside in
@@ -514,12 +637,58 @@ struct FilmstripScrubber: View {
     }
 }
 
-/// Tenth-of-a-second times for trimming, where whole seconds are too coarse to place a cut.
+/// Time ticks above the track. The single thing that most makes a filmstrip read as a timeline
+/// rather than as a scrubber.
+private struct Ruler: View {
+    let duration: TimeInterval
+    let width: CGFloat
+
+    var body: some View {
+        let interval = Self.tickInterval(for: duration, width: width)
+        let count = max(1, Int(duration / interval))
+
+        ZStack(alignment: .topLeading) {
+            ForEach(0...count, id: \.self) { index in
+                let seconds = Double(index) * interval
+                let x = width * CGFloat(seconds / duration)
+                VStack(alignment: .leading, spacing: 2) {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.25))
+                        .frame(width: 1, height: Space.s)
+                    Text(Clock.short(seconds))
+                        .font(TypeRamp.mono)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
+                }
+                .offset(x: x)
+            }
+        }
+        .frame(width: width, height: Space.l + Space.xs, alignment: .topLeading)
+        .clipped()
+    }
+
+    /// A round number of seconds that leaves labels far enough apart to read.
+    static func tickInterval(for duration: TimeInterval, width: CGFloat) -> TimeInterval {
+        let candidates: [TimeInterval] = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600]
+        // About 64 points between labels; below that they collide.
+        let wanted = duration / Double(max(1, Int(width / 64)))
+        return candidates.first { $0 >= wanted } ?? candidates[candidates.count - 1]
+    }
+}
+
+/// Times for trimming, where whole seconds are too coarse to place a cut.
 enum Clock {
+    /// Tenths, for the readouts either side of a cut.
     static func precise(_ seconds: TimeInterval) -> String {
         let clamped = max(0, seconds)
         let minutes = Int(clamped) / 60
         let secs = clamped - Double(minutes * 60)
         return String(format: "%d:%04.1f", minutes, secs)
+    }
+
+    /// Whole seconds, for ruler ticks and the header, where a tenth is noise.
+    static func short(_ seconds: TimeInterval) -> String {
+        let clamped = Int(max(0, seconds))
+        return String(format: "%d:%02d", clamped / 60, clamped % 60)
     }
 }

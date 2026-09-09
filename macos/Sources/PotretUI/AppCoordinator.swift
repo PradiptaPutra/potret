@@ -117,6 +117,19 @@ public final class AppCoordinator {
         openEditor(for: item)
     }
 
+    /// Open the newest recording in the trimmer, and stop there.
+    ///
+    /// `editLatestForTesting` opens whatever is newest, which is usually a screenshot, so it
+    /// cannot be used to look at the trim window.
+    public func showTrimmerForTesting() {
+        historyModel.load()
+        guard let item = historyModel.items.first(where: \.isRecording) else {
+            Log.ui.error("no recording to open in the trimmer")
+            return
+        }
+        openEditor(for: item)
+    }
+
     /// Trim the newest recording to a fixed range and save it, with no pointer involved.
     ///
     /// The trim path is otherwise only reachable by dragging two handles, which cannot be checked
@@ -568,8 +581,9 @@ public final class AppCoordinator {
         let title = "Recording · \(Int(recording.pixelSize.width))×\(Int(recording.pixelSize.height)) · \(DurationFormat.clock(recording.duration))"
         let controller = MainWindowController(
             title: title,
-            defaultSize: NSSize(width: 720, height: 520),
-            resizable: true
+            defaultSize: NSSize(width: 880, height: 620),
+            resizable: true,
+            unifiedTitleBar: true
         ) { [weak self] in
             TrimView(
                 model: model,
@@ -689,8 +703,9 @@ public final class AppCoordinator {
             let labels = shortcutLabels
             homeWindow = MainWindowController(
                 title: "Potret",
-                defaultSize: NSSize(width: 860, height: 560),
-                resizable: true
+                defaultSize: NSSize(width: 900, height: 600),
+                resizable: true,
+                unifiedTitleBar: true
             ) {
                 HomeView(
                     model: model,

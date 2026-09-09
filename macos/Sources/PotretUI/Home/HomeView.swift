@@ -92,6 +92,7 @@ public struct HomeView: View {
     /// relaunch, and it changes on a click — where `ConfigStore`'s debounced asynchronous write
     /// would be the wrong shape entirely.
     @AppStorage("home.sidebarExpanded") private var sidebarExpanded = true
+    @State private var hoveringSidebar = false
     @FocusState private var searchFocused: Bool
 
     public init(
@@ -177,21 +178,27 @@ public struct HomeView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // The app's own icon, loaded from the bundle rather than an asset catalog — there is
-            // none without Xcode — via the icon macOS already uses for the app. It stays through
-            // the collapse; it is what identifies the window.
+            // The traffic lights sit on this material now, so the header starts below them.
+            Spacer(minLength: 0)
+                .frame(height: MainWindowController.titleBarHeight)
+
+            // The aperture from the app's icon, drawn rather than rasterized, and without the
+            // icon's glossy plate behind it: a Mac icon is lit and rounded because it sits in a
+            // Dock, and that gloss reads as a sticker once it is dropped into flat sidebar
+            // chrome. Same mark, same amber, no shine.
             HStack(spacing: Space.s) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: Space.xl, height: Space.xl)
+                Image(nsImage: TrayIcon.image(size: Space.l + Space.xs))
+                    .renderingMode(.template)
+                    .foregroundStyle(Brand.amber)
                 if sidebarExpanded {
                     Text("Potret").font(TypeRamp.heading)
                     Spacer(minLength: 0)
                 }
+                collapseButton
             }
             .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
             .padding(.horizontal, sidebarExpanded ? Space.m : Space.s)
-            .padding(.top, Space.l)
+            .padding(.top, Space.s)
             .padding(.bottom, Space.l)
 
             if sidebarExpanded {
@@ -236,7 +243,28 @@ public struct HomeView: View {
         }
         .frame(width: sidebarExpanded ? 208 : 60)
         .background(VisualEffect(.sidebar))
+        .onHover { hoveringSidebar = $0 }
         .animation(Motion.standard, value: sidebarExpanded)
+        .animation(Motion.quick, value: hoveringSidebar)
+    }
+
+    /// Collapse and expand, in the sidebar rather than the toolbar — it belongs to the thing it
+    /// operates. Collapsed, it hides until the pointer is over the rail, so the mark is not
+    /// competing with a control in a 60pt column.
+    @ViewBuilder
+    private var collapseButton: some View {
+        if sidebarExpanded || hoveringSidebar {
+            Button {
+                sidebarExpanded.toggle()
+            } label: {
+                Image(systemName: sidebarExpanded ? "sidebar.leading" : "sidebar.trailing")
+                    .foregroundStyle(.secondary)
+                    .frame(width: Space.l, height: Space.l)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(sidebarExpanded ? "Hide sidebar" : "Show sidebar")
+        }
     }
 
     private func filterRow(_ option: HomeFilter) -> some View {
@@ -273,15 +301,6 @@ public struct HomeView: View {
 
     private var toolbar: some View {
         HStack(spacing: Space.s) {
-            Button {
-                sidebarExpanded.toggle()
-            } label: {
-                Image(systemName: "sidebar.leading")
-                    .frame(width: Space.l, height: Space.l)
-            }
-            .buttonStyle(.accessoryBar)
-            .help(sidebarExpanded ? "Hide sidebar" : "Show sidebar")
-
             // The primary actions are real buttons here rather than rows buried in a list, and
             // each menu carries its shortcut, so nothing is lost by moving them out of the
             // sidebar.
@@ -324,7 +343,10 @@ public struct HomeView: View {
             .help(newestFirst ? "Newest first" : "Oldest first")
         }
         .padding(.horizontal, Space.m)
-        .padding(.vertical, Space.s)
+        // Clears the traffic lights, which now sit on the window's own material rather than on a
+        // separate strip above it.
+        .padding(.top, MainWindowController.titleBarHeight - Space.xs)
+        .padding(.bottom, Space.s)
     }
 
     private func menuItem(
@@ -514,6 +536,11 @@ private struct HomeCard: View {
                     if let image = model.thumbnail(for: item) {
                         Image(nsImage: image)
                             .resizable()
+                            // A card shows a whole screen at about a ninth of its size, so the
+                            // resampling quality is the difference between small text reading as
+                            // text and reading as smear. The default is cheaper and looks it.
+                            .interpolation(.high)
+                            .antialiased(true)
                             .scaledToFit()
                             .padding(Space.xs)
                     } else {

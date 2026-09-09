@@ -34,22 +34,33 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
     private let title: String
     private let defaultSize: NSSize
     private let resizable: Bool
+    private let unifiedTitleBar: Bool
     private let content: () -> AnyView
+
+    /// Height of the standard title bar, which a unified window's content has to leave clear so
+    /// nothing sits under the close, minimise and zoom buttons.
+    public static let titleBarHeight: CGFloat = 28
 
     /// - Parameters:
     ///   - defaultSize: initial content size. Settings is a fixed form; the editor needs room for
     ///     a full-resolution capture, and one hardcoded size cannot serve both — the editor was
     ///     opening at Settings' 460pt width, ignoring its own 720pt minimum.
     ///   - resizable: an editor must be; a settings form need not be.
+    ///   - unifiedTitleBar: draw the content all the way up behind the title bar, so the window's
+    ///     own material runs under the close, minimise and zoom buttons instead of the buttons
+    ///     sitting on a separate grey strip above it. The content is then responsible for leaving
+    ///     `titleBarHeight` clear at the top — see `HomeView`'s sidebar.
     public init(
         title: String,
         defaultSize: NSSize = NSSize(width: 460, height: 560),
         resizable: Bool = false,
+        unifiedTitleBar: Bool = false,
         content: @escaping () -> some View
     ) {
         self.title = title
         self.defaultSize = defaultSize
         self.resizable = resizable
+        self.unifiedTitleBar = unifiedTitleBar
         self.content = { AnyView(content()) }
         super.init()
     }
@@ -101,6 +112,7 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
         if let window { return window }
         var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
         if resizable { style.insert(.resizable) }
+        if unifiedTitleBar { style.insert(.fullSizeContentView) }
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: defaultSize),
             styleMask: style,
@@ -109,6 +121,13 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
         )
         window.title = title
         window.isReleasedWhenClosed = false
+        if unifiedTitleBar {
+            // The buttons sit on the window's own material instead of a separate grey strip
+            // above it. The title goes with the strip — the sidebar already names the app, and
+            // repeating it centred over the content is the look this is meant to remove.
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+        }
         window.contentView = NSHostingView(rootView: content())
         window.delegate = self
         // Present on whatever Space the user is on rather than dragging them to another one.

@@ -84,6 +84,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     coordinator.stopRecording()
                 }
             }
+            if ProcessInfo.processInfo.environment["POTRET_SHOW_TRIM"] != nil {
+                Log.ui.info("POTRET_SHOW_TRIM set — opening the trimmer")
+                coordinator.showTrimmerForTesting()
+            }
             // POTRET_TRIM_LATEST=start,end trims the newest recording and saves it.
             if let range = ProcessInfo.processInfo.environment["POTRET_TRIM_LATEST"] {
                 let parts = range.split(separator: ",").compactMap { Double($0) }
