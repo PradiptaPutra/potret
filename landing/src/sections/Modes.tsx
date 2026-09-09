@@ -1,3 +1,4 @@
+import Desktop from "../components/Desktop";
 import MacWindow from "../components/MacWindow";
 
 type Mode = {
@@ -9,6 +10,8 @@ type Mode = {
   shot: string;
   alt: string;
   caption: string;
+  /** Windows get a desktop behind them; full-bleed frames do not. */
+  onDesktop?: boolean;
 };
 
 /**
@@ -67,6 +70,7 @@ const MODES: Mode[] = [
     shot: "/shot-trim.png",
     alt: "The Potret trim window: a video player above a timeline with a time ruler, a filmstrip and amber drag handles.",
     caption: "Trimming a recording",
+    onDesktop: true,
   },
 ];
 
@@ -112,7 +116,18 @@ export default function Modes() {
                 className={`reveal min-w-0 ${index % 2 === 1 ? "lg:order-1" : ""}`}
                 style={{ transitionDelay: "80ms" }}
               >
-                <MacWindow src={mode.shot} alt={mode.alt} title={mode.caption} />
+                {mode.onDesktop ? (
+                  <Desktop caption={mode.caption}>
+                    <img
+                      src={mode.shot}
+                      alt={mode.alt}
+                      className="absolute left-1/2 top-[10.5%] h-[71%] w-auto -translate-x-1/2 rounded-[0.5em]"
+                      style={{ boxShadow: "0 24px 50px -12px rgba(0,0,0,.55)" }}
+                    />
+                  </Desktop>
+                ) : (
+                  <MacWindow src={mode.shot} alt={mode.alt} title={mode.caption} />
+                )}
               </div>
             </div>
           ))}

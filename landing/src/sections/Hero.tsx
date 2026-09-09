@@ -1,4 +1,4 @@
-import MacWindow from "../components/MacWindow";
+import Desktop from "../components/Desktop";
 import { BREW, DMG, RELEASES, SPECS, VERSION } from "../lib/site";
 import CopyLine from "../components/CopyLine";
 
@@ -10,7 +10,7 @@ import CopyLine from "../components/CopyLine";
 export default function Hero() {
   return (
     <section className="pt-32 pb-20 sm:pt-40">
-      <div className="shell grid items-center gap-14 lg:grid-cols-[55fr_45fr]">
+      <div className="shell grid items-center gap-14 lg:grid-cols-[46fr_54fr]">
         <div className="reveal min-w-0">
           <p className="eyebrow">Free &amp; open source · v{VERSION}</p>
 
@@ -52,10 +52,18 @@ export default function Hero() {
         </div>
 
         <div className="reveal min-w-0" style={{ transitionDelay: "120ms" }}>
-          <MacWindow
-            src="/shot-home.png"
-            alt="The Potret window: a gallery of captures grouped by day, with a sidebar and a capture toolbar."
-          />
+          <Desktop>
+            {/* Inset from the top so the window clears the menu bar, and off
+                centre the way a window you actually opened would sit. */}
+            {/* Sized by height, not width: the shot is 3:2 and the desktop is
+                16:10, so a width-based fit runs the window under the dock. */}
+            <img
+              src="/shot-home.png"
+              alt="The Potret window on a Mac desktop: a gallery of captures grouped by day, with a sidebar and a capture toolbar."
+              className="absolute left-1/2 top-[10.5%] h-[71%] w-auto -translate-x-1/2 rounded-[0.5em]"
+              style={{ boxShadow: "0 24px 50px -12px rgba(0,0,0,.55)" }}
+            />
+          </Desktop>
         </div>
       </div>
     </section>
