@@ -10,7 +10,7 @@
 
 ---
 
-Potret lives in your menu bar. Take a screenshot and a floating **Quick Access** panel appears so you can copy, save, annotate, pin, drag it out, or drop it onto a beautiful background — without opening a heavy editor.
+Potret lives in your menu bar. Take a screenshot and a floating **Quick Access** panel appears so you can copy, save, annotate, pin, drag it out, or drop it onto a beautiful background — without opening a heavy editor. Record your screen too, with click highlighting and a built-in trimmer.
 
 ## Download
 
@@ -56,6 +56,9 @@ Prefer to build it yourself (no Gatekeeper prompt)? See [Development](#getting-s
 ## Features
 
 - **Capture** — area (drag to select), window (click any window), or fullscreen
+- **Selection options bar** — after you drag an area, adjust it with handles, type an exact size, lock the aspect ratio, freeze the screen, or set a self-timer, then capture or record from the same bar
+- **Screen recording** — area, window or fullscreen to MP4, with a countdown, an optional pointer, and **click highlighting** that marks every click in the video without showing anything on your screen
+- **Trim** — review a recording on a real timeline with a ruler, drag handles to cut, and export the result as video or GIF; the trim is applied to your library, not just the exported copy
 - **Quick Access popup** — copy, save, annotate, pin, or drag the capture straight into another app; follows you across Spaces/desktops
 - **Annotation** — pen, line, arrow, rectangle, ellipse, text, highlighter, pixelate/blur, numbered steps, crop, eraser — with undo/redo and a custom color picker
 - **Background tool** — drop a screenshot onto gradient or custom backgrounds with padding, rounded corners, and shadow (great for social posts)
