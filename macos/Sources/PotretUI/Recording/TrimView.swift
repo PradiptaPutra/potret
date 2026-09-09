@@ -126,7 +126,20 @@ public final class TrimModel {
 
     // MARK: Frames
 
-    public func loadFrames(count: Int = 24) {
+    /// How many thumbnails the strip is worth for this recording.
+    ///
+    /// A fixed 24 was fine for a ten-second clip and useless for a ten-minute one, where it left
+    /// one frame every twenty-five seconds and the strip stopped previewing anything. Roughly one
+    /// per second and a half, bounded at both ends: enough to see, few enough to generate quickly.
+    public var frameCount: Int {
+        min(max(Int(duration / 1.5), 12), 80)
+    }
+
+    public func loadFrames() {
+        loadFrames(count: frameCount)
+    }
+
+    public func loadFrames(count: Int) {
         guard frames.isEmpty else { return }
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
@@ -180,13 +193,16 @@ struct PlayerView: NSViewRepresentable {
 /// what plays is what will be saved.
 public struct TrimView: View {
     @Bindable var model: TrimModel
-    let onSave: (URL) -> Void
+    /// The finished file, plus the trimmed length when the recording was actually cut. A
+    /// non-nil duration tells the coordinator to fold the edit back into the library entry
+    /// rather than only exporting a copy of it.
+    let onSave: (URL, TimeInterval?) -> Void
     let onExportGIF: (URL) -> Void
     let onDiscard: () -> Void
 
     public init(
         model: TrimModel,
-        onSave: @escaping (URL) -> Void,
+        onSave: @escaping (URL, TimeInterval?) -> Void,
         onExportGIF: @escaping (URL) -> Void,
         onDiscard: @escaping () -> Void
     ) {
@@ -273,20 +289,25 @@ public struct TrimView: View {
 
     private func save() {
         guard model.isTrimmed else {
-            onSave(model.url)
+            onSave(model.url, nil)
             return
         }
+        let trimmed = model.trimmedDuration
         model.isExporting = true
         model.status = "Trimming…"
         Task {
-            let output = model.url.deletingLastPathComponent()
-                .appending(path: "trimmed-\(UUID().uuidString).mp4")
+            // Into a scratch directory, never beside the recording. Writing here used to drop a
+            // full-size `trimmed-<uuid>.mp4` into the history folder that nothing could ever
+            // remove: the store lists by sidecar, so delete, Clear All, the retention limit and
+            // the size readout in Settings all walked straight past it.
+            let output = TrimScratch.url(extension: "mp4")
             do {
                 try await VideoTools.trim(model.url, from: model.start, to: model.end, to: output)
                 model.isExporting = false
                 model.status = nil
-                onSave(output)
+                onSave(output, trimmed)
             } catch {
+                TrimScratch.discard(output)
                 model.isExporting = false
                 model.status = "Trim failed: \(error.localizedDescription)"
             }
@@ -297,18 +318,41 @@ public struct TrimView: View {
         model.isExporting = true
         model.status = "Rendering GIF…"
         Task {
-            let output = model.url.deletingLastPathComponent()
-                .appending(path: "\(model.url.deletingPathExtension().lastPathComponent).gif")
+            // Unique per export. The old name was derived from the recording, so a second GIF
+            // from a different range silently replaced the first.
+            let output = TrimScratch.url(extension: "gif")
             do {
                 try await VideoTools.exportGIF(model.url, from: model.start, to: model.end, to: output)
                 model.isExporting = false
                 model.status = nil
                 onExportGIF(output)
             } catch {
+                TrimScratch.discard(output)
                 model.isExporting = false
                 model.status = "GIF failed: \(error.localizedDescription)"
             }
         }
+    }
+}
+
+/// Scratch space for files the trimmer produces before they are filed away.
+///
+/// Its own subdirectory under the system temp folder, so anything left behind by a crash is the
+/// operating system's problem rather than something that silently grows inside the user's
+/// history for the life of the install.
+enum TrimScratch {
+    static var directory: URL {
+        let url = URL.temporaryDirectory.appending(path: "potret-trim", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    static func url(extension ext: String) -> URL {
+        directory.appending(path: "\(UUID().uuidString).\(ext)")
+    }
+
+    static func discard(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 }
 

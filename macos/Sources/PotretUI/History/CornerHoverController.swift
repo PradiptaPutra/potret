@@ -155,6 +155,11 @@ public final class CornerHoverController {
     /// Force the stack open, for verification without a pointer.
     public func showNow() { show() }
 
+    /// Re-read history, so a capture edited elsewhere is not still shown here as it was.
+    public func reload() {
+        model.load(limit: CornerHoverView.itemCount)
+    }
+
     private func show() {
         model.load(limit: CornerHoverView.itemCount)
         // Nothing to show is not worth a panel. The Tauri version presented an empty 260×480

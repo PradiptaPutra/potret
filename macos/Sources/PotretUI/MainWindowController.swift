@@ -19,6 +19,11 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
     /// Asked before the window closes from the close button or Cmd-W. Return false to keep it
     /// open — the editor uses this to offer Save / Don't Save when there are annotations.
     public var shouldClose: (() -> Bool)?
+    /// Fired once the window has actually gone, however it went — a button in the content, the
+    /// red close button, or Cmd-W. Owners use it to drop their references and tear down whatever
+    /// the window was driving; the trimmer's player used to outlive its window because only the
+    /// HUD's own close button ran that cleanup.
+    public var onClosed: (() -> Void)?
     private var closingWithoutPrompt = false
     /// How many controller-owned windows are on screen. The policy flips back to accessory only
     /// when the LAST one closes — closing the editor used to flip it while the home window was
@@ -122,5 +127,6 @@ public final class MainWindowController: NSObject, NSWindowDelegate {
         if Self.visibleWindows == 0 {
             NSApp.setActivationPolicy(.accessory)
         }
+        onClosed?()
     }
 }

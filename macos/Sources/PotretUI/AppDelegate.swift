@@ -84,6 +84,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     coordinator.stopRecording()
                 }
             }
+            // POTRET_TRIM_LATEST=start,end trims the newest recording and saves it.
+            if let range = ProcessInfo.processInfo.environment["POTRET_TRIM_LATEST"] {
+                let parts = range.split(separator: ",").compactMap { Double($0) }
+                if parts.count == 2 {
+                    Log.ui.info("POTRET_TRIM_LATEST=\(range, privacy: .public)")
+                    coordinator.trimLatestForTesting(start: parts[0], end: parts[1])
+                }
+            }
             if ProcessInfo.processInfo.environment["POTRET_EDIT_LATEST"] != nil {
                 Log.ui.info("POTRET_EDIT_LATEST set")
                 coordinator.editLatestForTesting()

@@ -109,6 +109,19 @@ public struct RetentionPolicy: Sendable, Equatable {
 /// failure into an empty array with a comment reading "Backend command may not exist yet", so a
 /// history that failed to load looked exactly like a history that was empty — the user was shown
 /// "No captures yet" over a directory full of their screenshots.
+/// What can go wrong operating on a specific entry.
+public enum HistoryError: Error, LocalizedError {
+    case invalidID
+    case notFound
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidID: "That capture's identifier is not valid."
+        case .notFound: "That capture is no longer in your history."
+        }
+    }
+}
+
 public struct HistoryStore: Sendable {
     public let directory: URL
 
@@ -206,6 +219,105 @@ public struct HistoryStore: Sendable {
             fileSize: fileSize,
             duration: duration
         )
+    }
+
+    /// Swap a stored recording's video for an edited one, keeping its id, its place in the
+    /// timeline, and its thumbnail slot.
+    ///
+    /// Trimming used to write the shortened file to the user's save folder and leave history
+    /// holding the original, so the grid kept showing — and re-opening — the full-length take.
+    /// The edit is applied to the library entry as well, which is what makes it stick.
+    @discardableResult
+    public func replaceRecording(
+        id: String,
+        videoURL source: URL,
+        thumbnailData: Data,
+        duration: TimeInterval
+    ) throws -> HistoryItem {
+        guard Self.isValidID(id) else { throw HistoryError.invalidID }
+        guard let existing = try list().first(where: { $0.id == id }) else {
+            throw HistoryError.notFound
+        }
+
+        let destination = videoURL(id)
+        // Replace in place. The source is a temp file we own, so moving is safe and avoids
+        // writing a second full copy of a video that may be hundreds of megabytes.
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: source, to: destination)
+        try thumbnailData.write(to: thumbnailURL(id), options: .atomic)
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: destination.path)
+        let fileSize = (attributes?[.size] as? Int) ?? 0
+
+        // Timestamp is deliberately preserved: this is the same capture, edited, and re-dating it
+        // would jump it to the top of a grid the user is already looking at.
+        let metadata = HistoryMetadata(
+            id: id,
+            timestamp: Int(existing.timestamp.timeIntervalSince1970),
+            width: Int(existing.pixelSize.width),
+            height: Int(existing.pixelSize.height),
+            fileSize: fileSize,
+            duration: duration
+        )
+        try JSONEncoder().encode(metadata).write(to: metadataURL(id), options: .atomic)
+
+        return HistoryItem(
+            id: id,
+            imageURL: destination,
+            thumbnailURL: thumbnailURL(id),
+            timestamp: existing.timestamp,
+            pixelSize: existing.pixelSize,
+            fileSize: fileSize,
+            duration: duration
+        )
+    }
+
+    /// Delete files this store could have written that no longer belong to any entry.
+    ///
+    /// Two ways they appear: a crash between writing the media and writing its sidecar, and the
+    /// trimmer, which used to write `trimmed-<uuid>.mp4` and `<uuid>.gif` straight into this
+    /// directory and never remove them. Nothing could reach those files — `list` only reads
+    /// `.json`, so delete, clear, retention and the size readout all skipped them — and they
+    /// accumulated with every edit.
+    ///
+    /// Conservative on purpose: only names this store's own code produces are considered, so a
+    /// file a user dropped in here by hand is still left alone.
+    @discardableResult
+    public func sweepOrphans() throws -> Int {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return 0 }
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        let known = Set(try list().map(\.id))
+        var removed = 0
+
+        for name in names {
+            let url = directory.appending(path: name)
+            let doomed: Bool
+
+            if name.hasPrefix("trimmed-"), name.hasSuffix(".mp4") {
+                // Always a leftover: a kept trim is moved over the entry it belongs to.
+                doomed = true
+            } else if name.hasSuffix(".gif") {
+                doomed = true
+            } else if let id = Self.ownedFileID(name) {
+                doomed = !known.contains(id)
+            } else {
+                doomed = false
+            }
+
+            if doomed, (try? FileManager.default.removeItem(at: url)) != nil {
+                removed += 1
+            }
+        }
+        return removed
+    }
+
+    /// The entry id a file belongs to, if the name is one this store writes.
+    private static func ownedFileID(_ name: String) -> String? {
+        for suffix in [".thumb.png", ".png", ".mp4", ".json"] where name.hasSuffix(suffix) {
+            let id = String(name.dropLast(suffix.count))
+            return isValidID(id) ? id : nil
+        }
+        return nil
     }
 
     /// Newest first. A single corrupt sidecar is skipped rather than failing the whole listing —

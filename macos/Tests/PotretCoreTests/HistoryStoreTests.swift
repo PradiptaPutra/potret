@@ -23,6 +23,115 @@ struct HistoryStoreTests {
         )
     }
 
+    /// A stand-in recording. The bytes are not real video; nothing under test decodes them.
+    private func saveRecording(
+        _ store: HistoryStore,
+        at date: Date,
+        duration: TimeInterval = 10
+    ) throws -> HistoryItem {
+        let source = URL.temporaryDirectory.appending(path: "potret-src-\(UUID().uuidString).mp4")
+        try Data(repeating: 0xEE, count: 64).write(to: source)
+        return try store.saveRecording(
+            videoURL: source,
+            thumbnailData: Data(repeating: 0xCD, count: 4),
+            pixelSize: CGSize(width: 100, height: 50),
+            duration: duration,
+            now: date
+        )
+    }
+
+    @Test("A trim replaces the stored recording instead of leaving the original behind")
+    func replaceRecordingKeepsTheEntry() throws {
+        // Trimming used to export the shortened file and leave history holding the full-length
+        // take, so the grid kept showing — and re-opening — the recording the user just cut.
+        let store = makeStore()
+        let stamp = Date(timeIntervalSince1970: 1_757_030_400)
+        let original = try saveRecording(store, at: stamp, duration: 30)
+
+        let trimmed = URL.temporaryDirectory.appending(path: "potret-trim-\(UUID().uuidString).mp4")
+        try Data(repeating: 0x11, count: 8).write(to: trimmed)
+
+        let updated = try store.replaceRecording(
+            id: original.id,
+            videoURL: trimmed,
+            thumbnailData: Data(repeating: 0x22, count: 4),
+            duration: 12
+        )
+
+        #expect(updated.id == original.id)
+        #expect(updated.duration == 12)
+        #expect(updated.fileSize == 8)
+        // Same slot in the timeline: an edit is not a new capture and must not jump to the top.
+        #expect(updated.timestamp == original.timestamp)
+        #expect(updated.pixelSize == original.pixelSize)
+        // The scratch file is moved, not copied, so nothing is left in the temp folder.
+        #expect(!FileManager.default.fileExists(atPath: trimmed.path))
+
+        let listed = try store.list()
+        #expect(listed.count == 1)
+        #expect(listed[0].duration == 12)
+        #expect(try Data(contentsOf: listed[0].imageURL).count == 8)
+    }
+
+    @Test("Replacing a recording that is gone throws rather than inventing an entry")
+    func replaceMissingRecording() throws {
+        let store = makeStore()
+        try store.createDirectoryIfNeeded()
+        let source = URL.temporaryDirectory.appending(path: "potret-\(UUID().uuidString).mp4")
+        try Data(repeating: 0x11, count: 4).write(to: source)
+
+        #expect(throws: HistoryError.self) {
+            try store.replaceRecording(
+                id: UUID().uuidString,
+                videoURL: source,
+                thumbnailData: Data(repeating: 0x22, count: 4),
+                duration: 5
+            )
+        }
+        // A path outside the directory is refused before anything is written.
+        #expect(throws: HistoryError.self) {
+            try store.replaceRecording(
+                id: "../escape",
+                videoURL: source,
+                thumbnailData: Data(),
+                duration: 1
+            )
+        }
+    }
+
+    @Test("The sweep removes files no entry owns and leaves everything else alone")
+    func sweepOrphans() throws {
+        // Every trim and every GIF used to be written into this directory and never removed:
+        // list() only reads sidecars, so delete, clear, retention and the size readout all
+        // skipped them and they grew forever.
+        let store = makeStore()
+        let kept = try save(store, at: Date(timeIntervalSince1970: 1_757_030_400))
+        let directory = store.directory
+
+        let leftoverTrim = directory.appending(path: "trimmed-\(UUID().uuidString).mp4")
+        let leftoverGIF = directory.appending(path: "\(UUID().uuidString).gif")
+        // Media whose sidecar never made it to disk — a crash mid-save.
+        let headlessMedia = directory.appending(path: "\(UUID().uuidString).png")
+        // Not ours. A file the user put here by hand is not the store's to delete.
+        let foreign = directory.appending(path: "notes.txt")
+        for url in [leftoverTrim, leftoverGIF, headlessMedia, foreign] {
+            try Data(repeating: 0x01, count: 4).write(to: url)
+        }
+
+        #expect(try store.sweepOrphans() == 3)
+
+        #expect(!FileManager.default.fileExists(atPath: leftoverTrim.path))
+        #expect(!FileManager.default.fileExists(atPath: leftoverGIF.path))
+        #expect(!FileManager.default.fileExists(atPath: headlessMedia.path))
+        #expect(FileManager.default.fileExists(atPath: foreign.path))
+        // The real entry is untouched, files and listing alike.
+        #expect(FileManager.default.fileExists(atPath: kept.imageURL.path))
+        #expect(FileManager.default.fileExists(atPath: kept.thumbnailURL.path))
+        #expect(try store.list().map(\.id) == [kept.id])
+        // Idempotent: a second pass has nothing left to do.
+        #expect(try store.sweepOrphans() == 0)
+    }
+
     @Test("A missing directory lists as empty rather than throwing")
     func missingDirectory() throws {
         #expect(try makeStore().list().isEmpty)

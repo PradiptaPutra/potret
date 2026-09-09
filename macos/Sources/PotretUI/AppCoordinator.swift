@@ -117,6 +117,37 @@ public final class AppCoordinator {
         openEditor(for: item)
     }
 
+    /// Trim the newest recording to a fixed range and save it, with no pointer involved.
+    ///
+    /// The trim path is otherwise only reachable by dragging two handles, which cannot be checked
+    /// without taking over the machine's input. This drives the same code the buttons drive.
+    public func trimLatestForTesting(start: TimeInterval, end: TimeInterval) {
+        historyModel.load()
+        guard let item = historyModel.items.first(where: \.isRecording) else {
+            Log.ui.error("no recording to trim")
+            return
+        }
+        openEditor(for: item)
+        guard let model = trimModel else { return }
+        model.setStart(start)
+        model.setEnd(end)
+        Log.ui.info(
+            "trim test: \(item.id, privacy: .public) \(start, format: .fixed(precision: 2))–\(end, format: .fixed(precision: 2))"
+        )
+        Task { [weak self] in
+            guard let self, let model = self.trimModel else { return }
+            let output = TrimScratch.url(extension: "mp4")
+            do {
+                try await VideoTools.trim(
+                    model.url, from: model.start, to: model.end, to: output
+                )
+                self.finishTrim(output, trimmedTo: model.trimmedDuration, historyID: item.id)
+            } catch {
+                Log.ui.error("trim test failed: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
     /// Open a stored capture in the editor.
     private func openEditor(for item: HistoryItem) {
         Log.ui.info("opening editor for \(item.id, privacy: .public)")
@@ -129,7 +160,8 @@ public final class AppCoordinator {
                     duration: item.duration ?? 0,
                     pixelSize: item.pixelSize,
                     fileSize: item.fileSize
-                )
+                ),
+                historyID: item.id
             )
             return
         }
@@ -478,7 +510,8 @@ public final class AppCoordinator {
                         duration: recording.duration,
                         pixelSize: recording.pixelSize,
                         fileSize: stored.fileSize
-                    )
+                    ),
+                    historyID: stored.id
                 )
             } catch {
                 Log.capture.error(
@@ -490,33 +523,102 @@ public final class AppCoordinator {
     }
 
     /// Open a finished recording for trimming and export.
-    private func openTrimmer(for recording: Recording) {
+    ///
+    /// - Parameter historyID: the library entry this recording is, when it has one. Saving a trim
+    ///   replaces that entry's video, so the grid stops showing a take the user already cut.
+    private func openTrimmer(for recording: Recording, historyID: String?) {
+        // One trimmer at a time, like the editor. Opening a second recording used to overwrite
+        // these references without closing the first window, orphaning it — and its player —
+        // mid-playback with nothing left holding a reference able to stop it.
+        closeTrimmer()
+
         let model = TrimModel(recording: recording)
         trimModel = model
         let title = "Recording · \(Int(recording.pixelSize.width))×\(Int(recording.pixelSize.height)) · \(DurationFormat.clock(recording.duration))"
-        trimWindow = MainWindowController(
+        let controller = MainWindowController(
             title: title,
             defaultSize: NSSize(width: 720, height: 520),
             resizable: true
         ) { [weak self] in
             TrimView(
                 model: model,
-                onSave: { url in self?.saveRecordingFile(url, extension: "mp4") },
-                onExportGIF: { url in self?.saveRecordingFile(url, extension: "gif") },
+                onSave: { [weak self] url, trimmedDuration in
+                    self?.finishTrim(url, trimmedTo: trimmedDuration, historyID: historyID)
+                },
+                onExportGIF: { [weak self] url in
+                    self?.exportRecordingFile(url, extension: "gif")
+                    self?.closeTrimmer()
+                },
                 onDiscard: { self?.closeTrimmer() }
             )
         }
-        trimWindow?.show()
+        // However the window goes — a button in the HUD, the red one, or Cmd-W — the player stops
+        // and the references go. Only the HUD button used to run that, so closing the window the
+        // ordinary way left an AVPlayer and its periodic observer alive and unreachable.
+        controller.onClosed = { [weak self] in
+            self?.trimModel?.stop()
+            self?.trimModel = nil
+            self?.trimWindow = nil
+        }
+        trimWindow = controller
+        controller.show()
     }
 
     private func closeTrimmer() {
+        trimModel?.stop()
         trimWindow?.close()
         trimWindow = nil
         trimModel = nil
     }
 
+    /// Export the finished video, and — when it was actually trimmed — make the cut stick in the
+    /// library rather than leaving the full-length take behind.
+    private func finishTrim(_ url: URL, trimmedTo duration: TimeInterval?, historyID: String?) {
+        exportRecordingFile(url, extension: "mp4")
+
+        guard let duration, let historyID else {
+            closeTrimmer()
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                // A fresh poster frame: the old one may have come from a part just cut away.
+                let poster = try await VideoTools.posterFrame(for: url)
+                let png = try ImageEncoder.encode(poster, format: .png, quality: 100)
+                let thumbnailImage = try ImageEncoder.thumbnail(from: png)
+                let thumbnail = try ImageEncoder.encode(thumbnailImage, format: .png, quality: 100)
+                // Moves the scratch file into place, so nothing is left behind in the temp folder.
+                _ = try self.historyStore.replaceRecording(
+                    id: historyID,
+                    videoURL: url,
+                    thumbnailData: thumbnail,
+                    duration: duration
+                )
+                self.historyModel.load()
+                self.cornerHover.reload()
+                Log.capture.info("history entry \(historyID, privacy: .public) replaced with the trim")
+            } catch {
+                // The export already succeeded, so this does not warrant an error dialog — the
+                // user has their file. Say it plainly and leave the original entry alone.
+                Log.capture.error(
+                    "updating history after a trim failed: \(error.localizedDescription, privacy: .public)"
+                )
+                self.toast.show(
+                    "Saved, but the library still holds the untrimmed recording", isError: true
+                )
+                TrimScratch.discard(url)
+            }
+            self.closeTrimmer()
+        }
+    }
+
     /// Copy a finished video or GIF into the user's save folder, under the filename template.
-    private func saveRecordingFile(_ url: URL, extension ext: String) {
+    ///
+    /// Copies rather than moves: the source is either the history entry, which has to stay, or a
+    /// scratch file the caller may still need to file away afterwards.
+    private func exportRecordingFile(_ url: URL, extension ext: String) {
         do {
             let directory = cachedConfig.saveDirectory
             try FileManager.default.createDirectory(
@@ -527,16 +629,16 @@ public final class AppCoordinator {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.path])
             }
-            // Copy, never move: the source may be the history copy, which has to stay.
             try FileManager.default.copyItem(at: url, to: destination)
             Log.capture.info("saved recording to \(destination.lastPathComponent, privacy: .public)")
+            // The toast names the file and stops there. Revealing it called
+            // NSWorkspace.activateFileViewerSelecting, which brings Finder to the front and takes
+            // the keyboard — from an app whose every other surface goes out of its way not to.
             toast.show("Saved \(destination.lastPathComponent)")
-            NSWorkspace.shared.activateFileViewerSelecting([destination])
         } catch {
             Log.capture.error("saving recording failed: \(error.localizedDescription, privacy: .public)")
             present(error: error)
         }
-        closeTrimmer()
     }
 
     /// The app's main window: capture and record actions, and everything captured so far.
@@ -649,6 +751,13 @@ public final class AppCoordinator {
         // forever while showing only the newest 50, so an upgrading user may arrive with a large
         // backlog to trim once.
         _ = try? historyStore.prune(policy: config.retentionPolicy)
+
+        // Clear out files no entry owns. Earlier builds wrote every trim and every GIF straight
+        // into the history folder and left them there, where nothing could reach them — so an
+        // upgrading user arrives with a pile of them to collect once.
+        if let swept = try? historyStore.sweepOrphans(), swept > 0 {
+            Log.ui.info("swept \(swept) orphaned file(s) from history")
+        }
     }
 
     public func shutdown() {

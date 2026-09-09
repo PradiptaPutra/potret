@@ -83,6 +83,16 @@ No UI automation is available, so these are a real checklist, not a formality.
 - [ ] Record in the bar starts a region recording even when the selector was opened to capture
 - [ ] The bar flips above the selection near the screen bottom, and never leaves the screen
 
+**Trimming**
+- [ ] Saving a trim shortens the entry in the library — the grid and the corner stack stop
+      offering the full-length take, and its thumbnail is a frame that survived the cut
+- [ ] The history folder gains no `trimmed-*.mp4` or `*.gif`, and the scratch folder is left empty
+- [ ] Closing the trim window with the red button stops playback, as the HUD's own button does
+- [ ] Opening a second recording while the trimmer is up replaces it rather than orphaning it
+- [ ] Two GIF exports from different ranges produce two files
+- [ ] A ten-minute recording gets a filmstrip worth scrubbing
+- [ ] Saving does not bring Finder to the front
+
 **Other**
 - [ ] Drag-out to Finder, Slack, Mail, Preview
 - [ ] Light/Dark × Increase Contrast × Reduce Motion × a non-blue accent colour
