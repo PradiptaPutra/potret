@@ -85,6 +85,16 @@ public struct SettingsView: View {
             }
 
             Section {
+                Toggle("Show the pointer", isOn: $model.recordingShowsCursor)
+            } header: {
+                Text("Recording")
+            } footer: {
+                Text("Turn this off for a walkthrough where the pointer only distracts. Screenshots never include it.")
+                    .font(TypeRamp.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 LabeledContent("Keep") {
                     Picker("", selection: $model.retentionLimit) {
                         Text("Last 50").tag(50)

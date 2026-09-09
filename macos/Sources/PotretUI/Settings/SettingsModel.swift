@@ -54,6 +54,12 @@ public final class SettingsModel {
     public var retentionLimit: Int = 200 {
         didSet { applyRetention() }
     }
+    public var recordingShowsCursor = true {
+        didSet {
+            let value = recordingShowsCursor
+            write { $0.recordingShowsCursor = value }
+        }
+    }
     public private(set) var savePath: String?
     public private(set) var permissionGranted = false
     public private(set) var historyBytes = 0
@@ -95,6 +101,7 @@ public final class SettingsModel {
             savePath = config.savePath
             shortcuts = LegacyShortcutMigration.migrate(config).combos
             retentionLimit = config.retentionLimit
+            recordingShowsCursor = config.recordingShowsCursor
             permissionGranted = CapturePermission.isGranted
             launchAtLogin = LoginItem.isEnabled
             historyBytes = (try? historyStore.totalBytes()) ?? 0

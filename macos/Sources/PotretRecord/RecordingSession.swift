@@ -156,7 +156,11 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
 
         self.stream = stream
         isRecording = true
-        Log.capture.info("recording started: \(Int(size.width))x\(Int(size.height))")
+        // The pointer flag is logged because it is invisible in the output until playback: a
+        // recording made with the wrong setting looks fine until you watch it back.
+        Log.capture.info(
+            "recording started: \(Int(size.width))x\(Int(size.height)) cursor=\(self.settings.showsCursor)"
+        )
     }
 
     public func pause() {

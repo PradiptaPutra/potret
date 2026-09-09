@@ -86,6 +86,33 @@ public struct EditorView: View {
 
     private var toolbarContent: some View {
         HStack(spacing: Space.xs) {
+            // Undo and redo lead the toolbar, before the tools. ⌘Z works whether or not the
+            // buttons are reachable, but a visible control that greys out when the stack is
+            // empty is the only way the editor says out loud that a mistake is recoverable.
+            Button {
+                model.undo()
+            } label: {
+                Image(systemName: "arrow.uturn.backward")
+                    .frame(width: Space.l, height: Space.l)
+            }
+            .buttonStyle(.accessoryBar)
+            .disabled(!model.canUndo)
+            .help(model.undoTitle)
+            .keyboardShortcut("z", modifiers: .command)
+
+            Button {
+                model.redo()
+            } label: {
+                Image(systemName: "arrow.uturn.forward")
+                    .frame(width: Space.l, height: Space.l)
+            }
+            .buttonStyle(.accessoryBar)
+            .disabled(!model.canRedo)
+            .help(model.redoTitle)
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+
+            Divider().frame(height: Space.l)
+
             ForEach(EditorTool.allCases, id: \.self) { tool in
                 Button {
                     model.tool = tool

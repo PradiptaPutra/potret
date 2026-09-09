@@ -89,6 +89,19 @@ public final class EditorModel {
     public var editingText: AnnotationElement.ID?
 
     public let undoManager = UndoManager()
+
+    /// Mirrors of `undoManager`'s state, so the toolbar can enable and label its buttons.
+    ///
+    /// `UndoManager` predates Observation and publishes nothing SwiftUI watches, so reading
+    /// `undoManager.canUndo` straight from a view body leaves the buttons stuck at whatever they
+    /// were on first render. Every mutation funnels through `apply`, so refreshing these in one
+    /// place there keeps them honest.
+    public private(set) var canUndo = false
+    public private(set) var canRedo = false
+    /// "Undo Add Arrow" rather than "Undo" — the action name the edit registered.
+    public private(set) var undoTitle = "Undo"
+    public private(set) var redoTitle = "Redo"
+
     private let onFinish: (CGImage) -> Void
 
     public init(document: AnnotationDocument, source: CGImage, onFinish: @escaping (CGImage) -> Void) {
@@ -120,6 +133,32 @@ public final class EditorModel {
         undoManager.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated { model.apply(edit.inverse, name: name) }
         }
+        refreshUndoState()
+    }
+
+    /// Step back one edit. Registering the inverse happens inside `apply`, so redo comes free.
+    public func undo() {
+        guard undoManager.canUndo else { return }
+        // A text element still being typed has no committed edit behind it; leaving the field up
+        // over an element undo is about to remove would strand the editor in a state where
+        // typing writes to something that no longer exists.
+        editingText = nil
+        undoManager.undo()
+        refreshUndoState()
+    }
+
+    public func redo() {
+        guard undoManager.canRedo else { return }
+        editingText = nil
+        undoManager.redo()
+        refreshUndoState()
+    }
+
+    private func refreshUndoState() {
+        canUndo = undoManager.canUndo
+        canRedo = undoManager.canRedo
+        undoTitle = undoManager.undoMenuItemTitle
+        redoTitle = undoManager.redoMenuItemTitle
     }
 
     public func add(_ element: AnnotationElement) {

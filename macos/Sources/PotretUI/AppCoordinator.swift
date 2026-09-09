@@ -315,7 +315,7 @@ public final class AppCoordinator {
                     let pointer = NSEvent.mouseLocation
                     let active = displays.first { $0.frame.contains(pointer) } ?? displays.first
                     guard let active else { throw CaptureError.noDisplays }
-                    await self.recorder.start(target: .display(active.id), settings: self.recordingSettings)
+                    await self.recorder.start(target: .display(active.id), settings: await self.currentRecordingSettings())
                     self.onRecordingStateChanged?()
                 } catch {
                     self.present(error: error)
@@ -330,7 +330,7 @@ public final class AppCoordinator {
                         guard let self, let id else { return }
                         Task {
                             await self.recorder.start(
-                                target: .window(id), settings: self.recordingSettings
+                                target: .window(id), settings: await self.currentRecordingSettings()
                             )
                             self.onRecordingStateChanged?()
                         }
@@ -385,7 +385,7 @@ public final class AppCoordinator {
             case .record:
                 await self.recorder.start(
                     target: .region(result.rect, on: result.displayID),
-                    settings: self.recordingSettings
+                    settings: await self.currentRecordingSettings()
                 )
                 self.onRecordingStateChanged?()
             }
@@ -407,7 +407,7 @@ public final class AppCoordinator {
                     return
                 }
                 Log.capture.info("test window record: \(front.owningApplication, privacy: .public) \(front.id)")
-                await self.recorder.start(target: .window(front.id), settings: self.recordingSettings)
+                await self.recorder.start(target: .window(front.id), settings: await self.currentRecordingSettings())
                 self.onRecordingStateChanged?()
             } catch {
                 self.present(error: error)
@@ -425,7 +425,7 @@ public final class AppCoordinator {
                 guard let display = displays.first else { return }
                 Log.capture.info("test region record \(NSStringFromRect(rect), privacy: .public)")
                 await self.recorder.start(
-                    target: .region(rect, on: display.id), settings: self.recordingSettings
+                    target: .region(rect, on: display.id), settings: await self.currentRecordingSettings()
                 )
                 self.onRecordingStateChanged?()
             } catch {
@@ -438,8 +438,16 @@ public final class AppCoordinator {
         recorder.stop()
     }
 
-    private var recordingSettings: RecordingSettings {
-        RecordingSettings()
+    /// Settings for a recording about to start, read from the store rather than from the cache.
+    ///
+    /// `cachedConfig` is only refreshed by a capture, so a user who opens Settings, turns the
+    /// pointer off and records straight away would have got the old value — the setting would
+    /// appear to need a capture, or a relaunch, before it took. Re-reading here costs one actor
+    /// hop on a path that is already async and already about to touch the disk.
+    private func currentRecordingSettings() async -> RecordingSettings {
+        let config = await configStore.current
+        cachedConfig = config
+        return RecordingSettings(showsCursor: config.recordingShowsCursor)
     }
 
     /// A finished recording goes into history alongside stills, and opens the trimmer.

@@ -87,6 +87,22 @@ struct AppConfigTests {
         #expect(try decode(#"{"retention_limit":0}"#).retentionPolicy == .unlimited)
     }
 
+    @Test("The recording pointer setting round-trips and defaults to on")
+    func recordingCursorPersists() throws {
+        // A config written before this key existed — every install that predates it — must keep
+        // the behaviour it had, which was the pointer being drawn.
+        #expect(try decode("{}").recordingShowsCursor)
+        #expect(try decode(#"{"recording_shows_cursor":false}"#).recordingShowsCursor == false)
+        #expect(try decode(#"{"recording_shows_cursor":true}"#).recordingShowsCursor)
+
+        var config = AppConfig.default
+        config.recordingShowsCursor = false
+        let data = try JSONEncoder().encode(config)
+        #expect(try JSONDecoder().decode(AppConfig.self, from: data).recordingShowsCursor == false)
+        // Written under the snake_case name the rest of the file uses.
+        #expect(String(decoding: data, as: UTF8.self).contains("recording_shows_cursor"))
+    }
+
     @Test("Save directory has exactly one fallback")
     func saveDirectoryFallback() {
         // The Tauri app claimed "Default (App Support)" in Settings while writing to the Desktop.

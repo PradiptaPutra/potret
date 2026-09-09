@@ -20,6 +20,10 @@ public struct AppConfig: Codable, Equatable, Sendable {
     /// How many captures to keep; 0 keeps everything. New to the native app — the Tauri build kept
     /// everything forever — so it is absent from older files and defaults.
     public var retentionLimit: Int
+    /// Draw the pointer into recordings. Off is right for a UI walkthrough where the pointer is
+    /// noise, on for a demo where it is the whole point — so it is a setting, not a guess.
+    /// Stills never include the pointer.
+    public var recordingShowsCursor: Bool
 
     public enum ImageFormat: String, Codable, Sendable, CaseIterable {
         case png
@@ -37,6 +41,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         case filenameTemplate = "filename_template"
         case cornerPopupEnabled = "corner_popup_enabled"
         case retentionLimit = "retention_limit"
+        case recordingShowsCursor = "recording_shows_cursor"
     }
 
     // NOT Cmd+Shift+3/4/5: macOS owns those for its own screenshot tools and swallows the
@@ -53,7 +58,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         jpegQuality: 90,
         filenameTemplate: FilenameTemplate.default.template,
         cornerPopupEnabled: true,
-        retentionLimit: 200
+        retentionLimit: 200,
+        recordingShowsCursor: true
     )
 
     public init(
@@ -66,7 +72,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         jpegQuality: Int,
         filenameTemplate: String,
         cornerPopupEnabled: Bool,
-        retentionLimit: Int = 200
+        retentionLimit: Int = 200,
+        recordingShowsCursor: Bool = true
     ) {
         self.shortcutArea = shortcutArea
         self.shortcutWindow = shortcutWindow
@@ -78,6 +85,7 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.filenameTemplate = filenameTemplate
         self.cornerPopupEnabled = cornerPopupEnabled
         self.retentionLimit = retentionLimit
+        self.recordingShowsCursor = recordingShowsCursor
     }
 
     public init(from decoder: any Decoder) throws {
@@ -100,6 +108,9 @@ public struct AppConfig: Codable, Equatable, Sendable {
             .flatMap { $0 } ?? fallback.cornerPopupEnabled
         retentionLimit = (try? container.decodeIfPresent(Int.self, forKey: .retentionLimit))
             .flatMap { $0 } ?? fallback.retentionLimit
+        recordingShowsCursor =
+            (try? container.decodeIfPresent(Bool.self, forKey: .recordingShowsCursor))
+            .flatMap { $0 } ?? fallback.recordingShowsCursor
     }
 
     /// The retention policy the user chose. This used to be hardcoded to 200 at launch and after
