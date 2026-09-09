@@ -32,6 +32,15 @@ enum HomeFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    /// The collapsed rail has no room for words, so the tooltip carries them instead.
+    var shortTitle: String {
+        switch self {
+        case .all: "All"
+        case .screenshots: "Screenshots"
+        case .recordings: "Recordings"
+        }
+    }
+
     var symbol: String {
         switch self {
         case .all: "square.grid.2x2"
@@ -57,15 +66,33 @@ enum HomeFilter: String, CaseIterable, Identifiable {
     }
 }
 
-/// The app's main window: sources on the left, captures in a grid.
+/// One day's captures. The grid used to be one undifferentiated wall of every capture ever
+/// taken, and a hundred of those is a pile rather than a history.
+private struct DaySection: Identifiable {
+    let id: Date
+    let title: String
+    let items: [HistoryItem]
+}
+
+/// The app's main window: a gallery of everything captured, with a sidebar that collapses to a
+/// rail when the captures matter more than the navigation.
 public struct HomeView: View {
     @Bindable var model: HistoryModel
     let actions: HomeActions
     let historyActions: HistoryActions
-    /// Shown beside each action, so the window teaches the shortcuts.
+    /// Shown beside each action in the capture menus, so the window still teaches the shortcuts.
     let shortcuts: [ShortcutID: String]
 
     @State private var filter: HomeFilter = .all
+    @State private var search = ""
+    @State private var newestFirst = true
+    /// Whether the sidebar shows labels or collapses to icons.
+    ///
+    /// In UserDefaults rather than the app's config file: it is window state, it has to survive a
+    /// relaunch, and it changes on a click — where `ConfigStore`'s debounced asynchronous write
+    /// would be the wrong shape entirely.
+    @AppStorage("home.sidebarExpanded") private var sidebarExpanded = true
+    @FocusState private var searchFocused: Bool
 
     public init(
         model: HistoryModel,
@@ -79,17 +106,69 @@ public struct HomeView: View {
         self.shortcuts = shortcuts
     }
 
+    // MARK: Data
+
     private var visibleItems: [HistoryItem] {
-        model.items.filter(filter.matches)
+        let matching = model.items.filter { filter.matches($0) && matchesSearch($0) }
+        return newestFirst ? matching : matching.reversed()
     }
+
+    /// Matches what the user can actually see on a card: when it was taken, how big it is, and
+    /// whether it is a recording. There is no filename to search — captures are stored under a
+    /// UUID — so offering to search one would find nothing.
+    private func matchesSearch(_ item: HistoryItem) -> Bool {
+        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !query.isEmpty else { return true }
+        let haystack = [
+            item.relativeTime,
+            item.dimensions,
+            Self.dayTitle(for: item.timestamp),
+            item.isRecording ? "recording video" : "screenshot image",
+        ].joined(separator: " ").lowercased()
+        return haystack.contains(query)
+    }
+
+    private var sections: [DaySection] {
+        let calendar = Calendar.current
+        let grouped = Dictionary(grouping: visibleItems) {
+            calendar.startOfDay(for: $0.timestamp)
+        }
+        return grouped.keys.sorted(by: newestFirst ? (>) : (<)).map { day in
+            DaySection(id: day, title: Self.dayTitle(for: day), items: grouped[day] ?? [])
+        }
+    }
+
+    static func dayTitle(for date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        let formatter = DateFormatter()
+        // Within the last week a weekday is more use than a date; older than that it is not.
+        if let days = calendar.dateComponents([.day], from: date, to: Date()).day, days < 7 {
+            formatter.dateFormat = "EEEE"
+        } else {
+            formatter.dateStyle = .medium
+        }
+        return formatter.string(from: date)
+    }
+
+    private func count(for filter: HomeFilter) -> Int {
+        model.items.filter(filter.matches).count
+    }
+
+    // MARK: Layout
 
     public var body: some View {
         HStack(spacing: 0) {
-            sidebarColumn
+            sidebar
             Divider()
-            content
+            VStack(spacing: 0) {
+                toolbar
+                Divider()
+                content
+            }
         }
-        .frame(minWidth: 760, minHeight: 500)
+        .frame(minWidth: 720, minHeight: 480)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { model.load() }
     }
@@ -97,96 +176,199 @@ public struct HomeView: View {
     // MARK: Sidebar
 
     private var sidebar: some View {
-        List(selection: $filter) {
-            Section("Library") {
-                ForEach(HomeFilter.allCases) { option in
-                    Label(option.title, systemImage: option.symbol)
-                        .tag(option)
-                }
-            }
-
-            Section("Capture") {
-                action("Area", "viewfinder", shortcuts[.captureArea], actions.captureArea)
-                action("Window", "macwindow", shortcuts[.captureWindow], actions.captureWindow)
-                action("Screen", "display", shortcuts[.captureFullscreen], actions.captureScreen)
-            }
-
-            Section("Record") {
-                action("Area", "record.circle", nil, actions.recordArea)
-                action("Window", "macwindow.on.rectangle", nil, actions.recordWindow)
-                action("Screen", "rectangle.dashed.badge.record", nil, actions.recordScreen)
-            }
-        }
-        .listStyle(.sidebar)
-    }
-
-    /// The sidebar column: list above, footer below, at a fixed width.
-    ///
-    /// The footer used to be a `.safeAreaInset` on the list. Its `Spacer` made the composed view
-    /// flexible, so the enclosing HStack split the window evenly between sidebar and grid — the
-    /// list was pushed right by 110pt, "Settings" sat at the window's far-left edge, and the grid
-    /// collapsed to one column of huge cropped thumbnails. A VStack sized after composition cannot
-    /// be stretched by its contents.
-    private var sidebarColumn: some View {
-        VStack(spacing: 0) {
-            // The app's own icon at the top of its own window. Loaded from the bundle rather than
-            // an asset catalog — there is none without Xcode — via the icon macOS already uses.
+        VStack(alignment: .leading, spacing: 0) {
+            // The app's own icon, loaded from the bundle rather than an asset catalog — there is
+            // none without Xcode — via the icon macOS already uses for the app. It stays through
+            // the collapse; it is what identifies the window.
             HStack(spacing: Space.s) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
-                    .frame(width: Space.xl + Space.xs, height: Space.xl + Space.xs)
-                Text("Potret")
-                    .font(TypeRamp.heading)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, Space.m)
-            .padding(.top, Space.xxl)
-            .padding(.bottom, Space.s)
-
-            sidebar
-            Divider()
-            HStack {
-                Button {
-                    actions.openSettings?()
-                } label: {
-                    Label("Settings", systemImage: "gearshape")
+                    .frame(width: Space.xl, height: Space.xl)
+                if sidebarExpanded {
+                    Text("Potret").font(TypeRamp.heading)
+                    Spacer(minLength: 0)
                 }
-                .buttonStyle(.link)
-                Spacer(minLength: 0)
-                Text(Self.version)
+            }
+            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
+            .padding(.horizontal, sidebarExpanded ? Space.m : Space.s)
+            .padding(.top, Space.l)
+            .padding(.bottom, Space.l)
+
+            if sidebarExpanded {
+                Text("LIBRARY")
                     .font(TypeRamp.caption)
                     .foregroundStyle(.tertiary)
+                    .padding(.horizontal, Space.m)
+                    .padding(.bottom, Space.xs)
             }
-            .padding(.horizontal, Space.m)
+
+            VStack(spacing: 2) {
+                ForEach(HomeFilter.allCases) { option in
+                    filterRow(option)
+                }
+            }
+            .padding(.horizontal, Space.s)
+
+            Spacer(minLength: 0)
+            Divider()
+
+            Button {
+                actions.openSettings?()
+            } label: {
+                HStack(spacing: Space.s) {
+                    Image(systemName: "gearshape")
+                        .frame(width: Space.l)
+                    if sidebarExpanded {
+                        Text("Settings").font(TypeRamp.body)
+                        Spacer(minLength: 0)
+                        Text(Self.version)
+                            .font(TypeRamp.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(sidebarExpanded ? "Settings" : "Settings \(Self.version)")
+            .padding(.horizontal, sidebarExpanded ? Space.m : Space.s)
             .padding(.vertical, Space.s)
         }
-        .frame(width: 210)
+        .frame(width: sidebarExpanded ? 208 : 60)
         .background(VisualEffect(.sidebar))
+        .animation(Motion.standard, value: sidebarExpanded)
     }
 
-    /// An action row. Not selectable, unlike the library rows above it — clicking runs it.
-    private func action(
-        _ title: String,
-        _ symbol: String,
-        _ shortcut: String?,
-        _ perform: (() -> Void)?
-    ) -> some View {
-        Button {
-            perform?()
+    private func filterRow(_ option: HomeFilter) -> some View {
+        let selected = filter == option
+        return Button {
+            filter = option
         } label: {
-            HStack {
-                Label(title, systemImage: symbol)
-                Spacer(minLength: Space.s)
-                if let shortcut {
-                    Text(shortcut)
+            HStack(spacing: Space.s) {
+                Image(systemName: option.symbol)
+                    .frame(width: Space.l)
+                    .foregroundStyle(selected ? Color.accentColor : .secondary)
+                if sidebarExpanded {
+                    Text(option.shortTitle).font(TypeRamp.body)
+                    Spacer(minLength: 0)
+                    Text("\(count(for: option))")
                         .font(TypeRamp.mono)
                         .foregroundStyle(.tertiary)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: sidebarExpanded ? .leading : .center)
+            .padding(.horizontal, Space.s)
+            .padding(.vertical, Space.xs + 2)
+            .background(
+                selected ? Color.accentColor.opacity(0.16) : .clear,
+                in: Radius.shape(Radius.sm)
+            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(sidebarExpanded ? option.title : "\(option.title) · \(count(for: option))")
+    }
+
+    // MARK: Toolbar
+
+    private var toolbar: some View {
+        HStack(spacing: Space.s) {
+            Button {
+                sidebarExpanded.toggle()
+            } label: {
+                Image(systemName: "sidebar.leading")
+                    .frame(width: Space.l, height: Space.l)
+            }
+            .buttonStyle(.accessoryBar)
+            .help(sidebarExpanded ? "Hide sidebar" : "Show sidebar")
+
+            // The primary actions are real buttons here rather than rows buried in a list, and
+            // each menu carries its shortcut, so nothing is lost by moving them out of the
+            // sidebar.
+            Menu {
+                menuItem("Area", shortcuts[.captureArea], actions.captureArea)
+                menuItem("Window", shortcuts[.captureWindow], actions.captureWindow)
+                menuItem("Screen", shortcuts[.captureFullscreen], actions.captureScreen)
+            } label: {
+                Label("New Capture", systemImage: "plus")
+            } primaryAction: {
+                actions.captureArea?()
+            }
+            .menuStyle(.button)
+            .buttonStyle(.borderedProminent)
+            .fixedSize()
+
+            Menu {
+                menuItem("Area", nil, actions.recordArea)
+                menuItem("Window", nil, actions.recordWindow)
+                menuItem("Screen", nil, actions.recordScreen)
+            } label: {
+                Label("Record", systemImage: "record.circle")
+            } primaryAction: {
+                actions.recordArea?()
+            }
+            .menuStyle(.button)
+            .fixedSize()
+
+            Spacer(minLength: Space.m)
+
+            searchField
+
+            Button {
+                newestFirst.toggle()
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .frame(width: Space.l, height: Space.l)
+            }
+            .buttonStyle(.accessoryBar)
+            .help(newestFirst ? "Newest first" : "Oldest first")
+        }
+        .padding(.horizontal, Space.m)
+        .padding(.vertical, Space.s)
+    }
+
+    private func menuItem(
+        _ title: String, _ shortcut: String?, _ perform: (() -> Void)?
+    ) -> some View {
+        Button {
+            perform?()
+        } label: {
+            if let shortcut {
+                Text("\(title)   \(shortcut)")
+            } else {
+                Text(title)
+            }
+        }
         .disabled(perform == nil)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: Space.xs) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search", text: $search)
+                .textFieldStyle(.plain)
+                .focused($searchFocused)
+            if !search.isEmpty {
+                Button {
+                    search = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .font(TypeRamp.body)
+        .padding(.horizontal, Space.s)
+        .padding(.vertical, Space.xs + 1)
+        .frame(width: 200)
+        .background(Color.primary.opacity(0.07), in: Radius.shape(Radius.sm))
+        .overlay(
+            Radius.shape(Radius.sm).strokeBorder(
+                searchFocused ? Color.accentColor : .clear, lineWidth: 1
+            )
+        )
     }
 
     // MARK: Grid
@@ -214,56 +396,68 @@ public struct HomeView: View {
             }
         case .loaded:
             if visibleItems.isEmpty {
-                centred {
-                    VStack(spacing: Space.s) {
-                        Image(systemName: filter.symbol)
-                            .font(TypeRamp.title)
-                            .foregroundStyle(.tertiary)
-                        Text(filter.emptyMessage).font(TypeRamp.body)
-                        if let hint = shortcuts[.captureFullscreen] {
-                            Text("Press \(hint) to capture your screen")
-                                .font(TypeRamp.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
+                centred { emptyState }
             } else {
                 grid
             }
         }
     }
 
-    private var grid: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(filter.title)
+    @ViewBuilder
+    private var emptyState: some View {
+        // A search that found nothing is not the same as having nothing, and saying "No captures
+        // yet" over a full library would be a lie.
+        if !search.isEmpty {
+            VStack(spacing: Space.s) {
+                Image(systemName: "magnifyingglass")
                     .font(TypeRamp.title)
-                Text("\(visibleItems.count)")
-                    .font(TypeRamp.secondary)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Click to open · drag to share")
-                    .font(TypeRamp.caption)
                     .foregroundStyle(.tertiary)
+                Text("Nothing matches \u{201C}\(search)\u{201D}").font(TypeRamp.body)
+                Button("Clear Search") { search = "" }.controlSize(.small)
             }
-            .padding(.horizontal, Space.l)
-            .padding(.top, Space.l)
-            .padding(.bottom, Space.s)
-
-            ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 200), spacing: Space.l)],
-                    spacing: Space.l
-                ) {
-                    ForEach(visibleItems) { item in
-                        HomeCard(item: item, model: model, actions: historyActions)
-                    }
+        } else {
+            VStack(spacing: Space.s) {
+                Image(systemName: filter.symbol)
+                    .font(TypeRamp.title)
+                    .foregroundStyle(.tertiary)
+                Text(filter.emptyMessage).font(TypeRamp.body)
+                if let hint = shortcuts[.captureArea] {
+                    Text("Press \(hint) to capture an area")
+                        .font(TypeRamp.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, Space.l)
-                .padding(.bottom, Space.l)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var grid: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: Space.l, pinnedViews: [.sectionHeaders]) {
+                ForEach(sections) { section in
+                    Section {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 190), spacing: Space.m)],
+                            spacing: Space.m
+                        ) {
+                            ForEach(section.items) { item in
+                                HomeCard(item: item, model: model, actions: historyActions)
+                            }
+                        }
+                    } header: {
+                        HStack(alignment: .firstTextBaseline, spacing: Space.s) {
+                            Text(section.title).font(TypeRamp.heading)
+                            Text("\(section.items.count)")
+                                .font(TypeRamp.caption)
+                                .foregroundStyle(.tertiary)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, Space.xs)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                    }
+                }
+            }
+            .padding(Space.l)
+        }
     }
 
     private func centred(@ViewBuilder _ content: () -> some View) -> some View {
@@ -288,10 +482,6 @@ private struct HomeCard: View {
     let actions: HistoryActions
     @State private var hovering = false
     @State private var confirmingDelete = false
-    /// The pointer is over the action buttons. The card's open-on-click is a simultaneous
-    /// gesture (it has to be — see below), so without this a click on Delete also opened the
-    /// capture: the tap and the button both fired.
-    @State private var overActions = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
@@ -315,22 +505,25 @@ private struct HomeCard: View {
 
     private var thumbnail: some View {
         ZStack(alignment: .topTrailing) {
-            // The CONTAINER is 16:10 and the image fills it. Putting the aspect ratio on the image
-            // instead gives it unbounded height, and .clipped() on the frame does not stop the
-            // layout from overflowing — thumbnails spilled over neighbouring cards.
+            // Fits inside the card rather than filling it. Filling meant a 77x80 capture was
+            // blown up into a 16:10 hole and cropped, so a small capture was unrecognisable and
+            // a tall one lost its top and bottom.
             Color.clear
                 .aspectRatio(16 / 10, contentMode: .fit)
                 .overlay {
                     if let image = model.thumbnail(for: item) {
                         Image(nsImage: image)
                             .resizable()
-                            .scaledToFill()
+                            .scaledToFit()
+                            .padding(Space.xs)
                     } else {
-                        Rectangle().fill(Color.primary.opacity(0.06))
+                        Image(systemName: item.isRecording ? "video" : "photo")
+                            .font(TypeRamp.title)
+                            .foregroundStyle(.tertiary)
                     }
                 }
-                .clipped()
-                // Drag out or click to open. The buttons below sit above this in the ZStack and
+                .background(Color.primary.opacity(0.06))
+                // Drag out, or click to open. The buttons below sit above this in the ZStack and
                 // keep their own clicks.
                 .overlay(
                     actions.dragSource(for: item, image: model.thumbnail(for: item)) {
@@ -349,7 +542,6 @@ private struct HomeCard: View {
                     button("trash", "Delete") { confirmingDelete = true }
                 }
                 .padding(Space.xs)
-                .onHover { overActions = $0 }
             }
         }
         .overlay(alignment: .bottomLeading) {
