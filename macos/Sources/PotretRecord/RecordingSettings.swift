@@ -22,19 +22,24 @@ public struct RecordingSettings: Equatable, Sendable {
     public var capturesSystemAudio: Bool
     public var capturesMicrophone: Bool
     public var showsCursor: Bool
+    /// Composite a ring into the frame wherever the user clicks. The difference between a demo a
+    /// viewer can follow and one where things change for no visible reason.
+    public var highlightsClicks: Bool
 
     public init(
         frameRate: Int = 30,
         quality: Quality = .standard,
         capturesSystemAudio: Bool = true,
         capturesMicrophone: Bool = false,
-        showsCursor: Bool = true
+        showsCursor: Bool = true,
+        highlightsClicks: Bool = false
     ) {
         self.frameRate = frameRate
         self.quality = quality
         self.capturesSystemAudio = capturesSystemAudio
         self.capturesMicrophone = capturesMicrophone
         self.showsCursor = showsCursor
+        self.highlightsClicks = highlightsClicks
     }
 
     /// Target bitrate for an output of this pixel size.

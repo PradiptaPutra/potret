@@ -83,6 +83,15 @@ No UI automation is available, so these are a real checklist, not a formality.
 - [ ] Record in the bar starts a region recording even when the selector was opened to capture
 - [ ] The bar flips above the selection near the screen bottom, and never leaves the screen
 
+**Demo recording**
+- [ ] A window recording follows the window when it is moved, and shows nothing stacked on top
+- [ ] Click rings land under the pointer on a display, a region, and a moved window
+- [ ] A ring is legible on a white page and on a dark one
+- [ ] A click outside the recorded area draws nothing
+- [ ] Rings appear in the file and never on screen while recording
+- [ ] The countdown runs before area, window and screen recordings alike
+- [ ] With highlighting off, frames are byte-identical to the untouched stream path
+
 **Trimming**
 - [ ] Saving a trim shortens the entry in the library — the grid and the corner stack stop
       offering the full-length take, and its thumbnail is a frame that survived the cut

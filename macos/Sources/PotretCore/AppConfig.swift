@@ -24,6 +24,11 @@ public struct AppConfig: Codable, Equatable, Sendable {
     /// noise, on for a demo where it is the whole point — so it is a setting, not a guess.
     /// Stills never include the pointer.
     public var recordingShowsCursor: Bool
+    /// Draw a ring at each click, into the recording only.
+    public var recordingHighlightsClicks: Bool
+    /// Seconds counted down before a recording starts, so there is time to arrange the window
+    /// being demonstrated. Zero starts immediately.
+    public var recordingCountdown: Int
 
     public enum ImageFormat: String, Codable, Sendable, CaseIterable {
         case png
@@ -42,6 +47,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         case cornerPopupEnabled = "corner_popup_enabled"
         case retentionLimit = "retention_limit"
         case recordingShowsCursor = "recording_shows_cursor"
+        case recordingHighlightsClicks = "recording_highlight_clicks"
+        case recordingCountdown = "recording_countdown"
     }
 
     // NOT Cmd+Shift+3/4/5: macOS owns those for its own screenshot tools and swallows the
@@ -59,7 +66,9 @@ public struct AppConfig: Codable, Equatable, Sendable {
         filenameTemplate: FilenameTemplate.default.template,
         cornerPopupEnabled: true,
         retentionLimit: 200,
-        recordingShowsCursor: true
+        recordingShowsCursor: true,
+        recordingHighlightsClicks: true,
+        recordingCountdown: 3
     )
 
     public init(
@@ -73,7 +82,9 @@ public struct AppConfig: Codable, Equatable, Sendable {
         filenameTemplate: String,
         cornerPopupEnabled: Bool,
         retentionLimit: Int = 200,
-        recordingShowsCursor: Bool = true
+        recordingShowsCursor: Bool = true,
+        recordingHighlightsClicks: Bool = true,
+        recordingCountdown: Int = 3
     ) {
         self.shortcutArea = shortcutArea
         self.shortcutWindow = shortcutWindow
@@ -86,6 +97,8 @@ public struct AppConfig: Codable, Equatable, Sendable {
         self.cornerPopupEnabled = cornerPopupEnabled
         self.retentionLimit = retentionLimit
         self.recordingShowsCursor = recordingShowsCursor
+        self.recordingHighlightsClicks = recordingHighlightsClicks
+        self.recordingCountdown = recordingCountdown
     }
 
     public init(from decoder: any Decoder) throws {
@@ -111,7 +124,16 @@ public struct AppConfig: Codable, Equatable, Sendable {
         recordingShowsCursor =
             (try? container.decodeIfPresent(Bool.self, forKey: .recordingShowsCursor))
             .flatMap { $0 } ?? fallback.recordingShowsCursor
+        recordingHighlightsClicks =
+            (try? container.decodeIfPresent(Bool.self, forKey: .recordingHighlightsClicks))
+            .flatMap { $0 } ?? fallback.recordingHighlightsClicks
+        recordingCountdown =
+            (try? container.decodeIfPresent(Int.self, forKey: .recordingCountdown))
+            .flatMap { $0 } ?? fallback.recordingCountdown
     }
+
+    /// Clamped so a hand-edited config cannot leave the user staring at a countdown.
+    public var clampedRecordingCountdown: Int { min(max(recordingCountdown, 0), 10) }
 
     /// The retention policy the user chose. This used to be hardcoded to 200 at launch and after
     /// every capture, so the Settings control changed nothing that lasted past a relaunch.

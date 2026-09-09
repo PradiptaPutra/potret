@@ -86,10 +86,20 @@ public struct SettingsView: View {
 
             Section {
                 Toggle("Show the pointer", isOn: $model.recordingShowsCursor)
+                Toggle("Highlight clicks", isOn: $model.recordingHighlightsClicks)
+                LabeledContent("Countdown") {
+                    Picker("", selection: $model.recordingCountdown) {
+                        Text("None").tag(0)
+                        Text("3 seconds").tag(3)
+                        Text("5 seconds").tag(5)
+                        Text("10 seconds").tag(10)
+                    }
+                    .labelsHidden()
+                }
             } header: {
                 Text("Recording")
             } footer: {
-                Text("Turn this off for a walkthrough where the pointer only distracts. Screenshots never include it.")
+                Text("A ring marks every click in the video without appearing on your screen. The countdown gives you time to arrange the window you are demonstrating. Screenshots never include the pointer.")
                     .font(TypeRamp.caption)
                     .foregroundStyle(.secondary)
             }

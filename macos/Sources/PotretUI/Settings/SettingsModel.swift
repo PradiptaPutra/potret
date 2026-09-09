@@ -60,6 +60,18 @@ public final class SettingsModel {
             write { $0.recordingShowsCursor = value }
         }
     }
+    public var recordingHighlightsClicks = true {
+        didSet {
+            let value = recordingHighlightsClicks
+            write { $0.recordingHighlightsClicks = value }
+        }
+    }
+    public var recordingCountdown = 3 {
+        didSet {
+            let value = recordingCountdown
+            write { $0.recordingCountdown = value }
+        }
+    }
     public private(set) var savePath: String?
     public private(set) var permissionGranted = false
     public private(set) var historyBytes = 0
@@ -102,6 +114,8 @@ public final class SettingsModel {
             shortcuts = LegacyShortcutMigration.migrate(config).combos
             retentionLimit = config.retentionLimit
             recordingShowsCursor = config.recordingShowsCursor
+            recordingHighlightsClicks = config.recordingHighlightsClicks
+            recordingCountdown = config.clampedRecordingCountdown
             permissionGranted = CapturePermission.isGranted
             launchAtLogin = LoginItem.isEnabled
             historyBytes = (try? historyStore.totalBytes()) ?? 0

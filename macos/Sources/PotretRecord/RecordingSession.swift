@@ -37,6 +37,14 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
     private var pixelSize: CGSize = .zero
     private var frameCount = 0
 
+    /// Rings drawn at each click, composited into the frames. Nil unless the setting is on, so a
+    /// recording without it takes exactly the path it always did.
+    private var clicks: ClickHighlighter?
+    /// Only needed when a ring is actually being drawn; frames otherwise go straight through as
+    /// the sample buffers they arrived in.
+    private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+    private var compositeFailures = 0
+
     public init(settings: RecordingSettings, outputURL: URL? = nil) {
         self.settings = settings
         self.outputURL = outputURL
@@ -109,7 +117,73 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
             )
         }
 
+        // Where the frames sit on screen, so a click can be placed inside them. Each target
+        // answers it differently, and getting it wrong puts the ring somewhere the user did not
+        // click — so it is derived here, beside the filter it has to agree with.
+        if settings.highlightsClicks {
+            let highlighter: ClickHighlighter
+            let area: (rect: CGRect, scale: CGFloat)
+
+            switch target {
+            case .display(let id):
+                guard let display = content.displays.first(where: { $0.displayID == id }) else {
+                    throw RecordingError.targetUnavailable
+                }
+                area = (display.frame, Self.scaleFactor(for: display))
+                highlighter = ClickHighlighter()
+
+            case .region(let globalRect, let displayID):
+                guard
+                    let display = content.displays.first(where: { $0.displayID == displayID })
+                else { throw RecordingError.targetUnavailable }
+                area = (globalRect, Self.scaleFactor(for: display))
+                highlighter = ClickHighlighter()
+
+            case .window(let id):
+                let scale = content.displays.first.map(Self.scaleFactor(for:)) ?? 2
+                let primaryHeight = content.displays
+                    .max(by: { $0.frame.height < $1.frame.height })
+                    .map(\.frame.height) ?? NSScreen.main?.frame.height ?? 0
+                // A window recording follows its window, so the rectangle is re-read on every
+                // frame that draws a ring rather than captured once at the start — otherwise
+                // moving the window puts every later click in the wrong place.
+                let provider: @Sendable () -> (rect: CGRect, scale: CGFloat)? = {
+                    guard let frame = Self.windowFrame(id: id, primaryHeight: primaryHeight) else {
+                        return nil
+                    }
+                    return (frame, scale)
+                }
+                area = (provider()?.rect ?? .zero, scale)
+                highlighter = ClickHighlighter(areaProvider: provider)
+            }
+
+            clicks = highlighter
+            await MainActor.run { highlighter.start(covering: area.rect, scale: area.scale) }
+        }
+
         try await start(filter: filter, size: size, sourceRect: sourceRect)
+    }
+
+    /// A window's current frame in global AppKit coordinates.
+    ///
+    /// `CGWindowListCopyWindowInfo` reports in CG global space — origin at the top-left of the
+    /// primary display, y down — while clicks arrive in AppKit global space. Both are called
+    /// "global coordinates" and both are in points, which is exactly how they get confused.
+    private static func windowFrame(id: CGWindowID, primaryHeight: CGFloat) -> CGRect? {
+        guard
+            let list = CGWindowListCopyWindowInfo(
+                [.optionIncludingWindow], id
+            ) as? [[String: Any]],
+            let bounds = list.first?[kCGWindowBounds as String] as? [String: CGFloat],
+            let x = bounds["X"], let y = bounds["Y"],
+            let width = bounds["Width"], let height = bounds["Height"],
+            width > 0, height > 0
+        else { return nil }
+
+        return CoordinateSpace.appKitGlobal(
+            cgGlobalRect: CGRect(x: x, y: y, width: width, height: height),
+            primaryHeight: primaryHeight
+        )
     }
 
     private static func scaleFactor(for display: SCDisplay) -> CGFloat {
@@ -191,6 +265,14 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
         guard isRecording else { throw RecordingError.notRecording }
         isRecording = false
 
+        if let clicks {
+            Log.capture.info(
+                "click highlighting: \(clicks.clicksSeen) click(s), \(clicks.framesDrawn) frame(s) drawn, \(self.compositeFailures) append failure(s)"
+            )
+            await MainActor.run { clicks.stop() }
+            self.clicks = nil
+        }
+
         if let stream {
             try? await stream.stopCapture()
         }
@@ -262,6 +344,17 @@ public final class RecordingSession: NSObject, @unchecked Sendable {
         )
         // The writer must never block the stream's delivery queue.
         video.expectsMediaDataInRealTime = true
+        if clicks != nil {
+            // BGRA to match what SCStream delivers, so compositing never converts formats.
+            pixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+                assetWriterInput: video,
+                sourcePixelBufferAttributes: [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                    kCVPixelBufferWidthKey as String: Int(size.width),
+                    kCVPixelBufferHeightKey as String: Int(size.height),
+                ]
+            )
+        }
         guard writer.canAdd(video) else { throw RecordingError.noFramesCaptured }
         writer.add(video)
 
@@ -355,8 +448,46 @@ extension RecordingSession: SCStreamOutput, SCStreamDelegate {
         lastVideoTime = timestamp
 
         guard let videoInput, videoInput.isReadyForMoreMediaData else { return }
+
+        // The ordinary path, and the only one when clicks are not being highlighted or none is
+        // on screen: hand the writer the buffer exactly as it arrived. Compositing is opt-in per
+        // frame rather than a stage every frame pays for.
+        if composite(sampleBuffer, at: timestamp) {
+            frameCount += 1
+            return
+        }
+
         videoInput.append(sampleBuffer)
         frameCount += 1
+    }
+
+    /// Draw the live click rings into a copy of the frame and write that instead.
+    ///
+    /// Returns false whenever the frame should be written untouched — highlighting off, nothing
+    /// clicked recently, or anything at all going wrong. A ring is a nicety; dropping the frame
+    /// because one could not be drawn would not be.
+    private func composite(_ sampleBuffer: CMSampleBuffer, at timestamp: CMTime) -> Bool {
+        guard
+            let clicks, clicks.hasActiveRipples,
+            let adaptor = pixelBufferAdaptor,
+            let pool = adaptor.pixelBufferPool,
+            let source = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else { return false }
+
+        let height = CGFloat(CVPixelBufferGetHeight(source))
+        guard let overlaid = clicks.overlay(on: CIImage(cvPixelBuffer: source), frameHeight: height)
+        else { return false }
+
+        var destination: CVPixelBuffer?
+        guard
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &destination) == kCVReturnSuccess,
+            let destination
+        else { return false }
+
+        clicks.render(overlaid, to: destination)
+        let appended = adaptor.append(destination, withPresentationTime: timestamp)
+        if !appended { compositeFailures += 1 }
+        return appended
     }
 
     private func appendAudio(_ sampleBuffer: CMSampleBuffer) {

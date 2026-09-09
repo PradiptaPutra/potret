@@ -347,7 +347,11 @@ public final class AppCoordinator {
                     let pointer = NSEvent.mouseLocation
                     let active = displays.first { $0.frame.contains(pointer) } ?? displays.first
                     guard let active else { throw CaptureError.noDisplays }
-                    await self.recorder.start(target: .display(active.id), settings: await self.currentRecordingSettings())
+                    await self.countdownBeforeRecording(on: active.frame)
+                    await self.recorder.start(
+                        target: .display(active.id),
+                        settings: await self.currentRecordingSettings()
+                    )
                     self.onRecordingStateChanged?()
                 } catch {
                     self.present(error: error)
@@ -361,6 +365,12 @@ public final class AppCoordinator {
                     self.windowPicker.begin(windows: windows) { [weak self] id in
                         guard let self, let id else { return }
                         Task {
+                            // Centred on the screen, not the window: WindowInfo frames are in CG
+                            // global space (top-left origin) and panels are placed in AppKit's,
+                            // so using one here would put the countdown at the wrong height.
+                            await self.countdownBeforeRecording(
+                                on: PanelPlacement.activeScreen.frame
+                            )
                             await self.recorder.start(
                                 target: .window(id), settings: await self.currentRecordingSettings()
                             )
@@ -395,6 +405,10 @@ public final class AppCoordinator {
             guard let self else { return }
             if result.delay > 0 {
                 await self.countdown.run(seconds: result.delay, centredOn: result.displayFrame)
+            } else if result.intent == .record {
+                // No timer chosen in the bar, so fall back to the recording countdown from
+                // Settings — an area recording gets the same beat to get set up as any other.
+                await self.countdownBeforeRecording(on: result.displayFrame)
             }
             switch result.intent {
             case .capture:
@@ -479,7 +493,21 @@ public final class AppCoordinator {
     private func currentRecordingSettings() async -> RecordingSettings {
         let config = await configStore.current
         cachedConfig = config
-        return RecordingSettings(showsCursor: config.recordingShowsCursor)
+        return RecordingSettings(
+            showsCursor: config.recordingShowsCursor,
+            highlightsClicks: config.recordingHighlightsClicks
+        )
+    }
+
+    /// Count down before a recording starts, unless the caller already did.
+    ///
+    /// Every recording needs the same beat to arrange the window being demonstrated — the area
+    /// selector offered it and the window and screen paths began the instant they were asked,
+    /// which is too soon to be useful for anything you meant to show.
+    private func countdownBeforeRecording(on frame: CGRect) async {
+        let seconds = await configStore.current.clampedRecordingCountdown
+        guard seconds > 0 else { return }
+        await countdown.run(seconds: seconds, centredOn: frame)
     }
 
     /// A finished recording goes into history alongside stills, and opens the trimmer.
