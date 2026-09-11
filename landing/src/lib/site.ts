@@ -8,6 +8,10 @@ export const DMG = `${REPO}/releases/download/v${VERSION}/Potret_${VERSION}_univ
 export const RELEASES = `${REPO}/releases/latest`;
 export const BREW = "brew install --cask PradiptaPutra/tap/potret";
 
+/** The person behind it. */
+export const X_HANDLE = "@bydipta";
+export const X_URL = "https://x.com/bydipta";
+
 /** What the app costs you to install, stated plainly. */
 export const SPECS = [
   { label: "Download", value: "3.1 MB" },

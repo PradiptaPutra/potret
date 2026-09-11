@@ -1,5 +1,5 @@
 import { ApertureMark } from "../components/Logo";
-import { REPO, RELEASES, VERSION } from "../lib/site";
+import { REPO, RELEASES, VERSION, X_HANDLE, X_URL } from "../lib/site";
 
 const COLUMNS = [
   {
@@ -26,6 +26,7 @@ const COLUMNS = [
       { label: "Report a bug", href: `${REPO}/issues` },
       { label: "Contributing", href: `${REPO}/blob/main/CONTRIBUTING.md` },
       { label: "Licence", href: `${REPO}/blob/main/LICENSE` },
+      { label: `${X_HANDLE} on X`, href: X_URL },
     ],
   },
 ];
@@ -71,7 +72,13 @@ export default function Footer() {
 
         <div className="mt-12 flex flex-wrap items-center justify-between gap-3 border-t border-ash pt-6">
           <p className="text-[13px] text-graphite">
-            © {new Date().getFullYear()} Potret · MIT
+            © {new Date().getFullYear()} Potret · MIT · made by{" "}
+            <a
+              href={X_URL}
+              className="font-medium text-slate transition-colors hover:text-ink"
+            >
+              {X_HANDLE}
+            </a>
           </p>
           <p className="font-mono text-[12px] text-steel">v{VERSION}</p>
         </div>
