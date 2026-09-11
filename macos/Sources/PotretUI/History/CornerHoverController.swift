@@ -15,12 +15,20 @@ public final class CornerHoverController {
     private static let dwell: Duration = .milliseconds(120)
     /// Leaving is debounced so crossing the gap between hot zone and panel does not close it.
     private static let closeDelay: Duration = .milliseconds(260)
-    private static let hotZone: CGFloat = 4
+    /// Width of the left-edge strip. Narrow enough to stay out of the way, wide enough that
+    /// throwing the pointer at the edge lands in it.
+    private static let hotWidth: CGFloat = 6
+    /// How far the strip reaches past the Dock, so the trigger is reachable whether or not the
+    /// Dock is on screen for the Space the user is currently on.
+    private static let hotReachAboveDock: CGFloat = 24
 
     private var hotPanel: OverlayPanel?
     private var listPanel: OverlayPanel?
     private var dwellTask: Task<Void, Never>?
     private var closeTask: Task<Void, Never>?
+    private var screenObserver: (any NSObjectProtocol)?
+    private var spaceObserver: (any NSObjectProtocol)?
+    private var dismissMonitors: [Any] = []
     private let model: HistoryModel
     private var actions: HistoryActions
 
@@ -66,6 +74,25 @@ public final class CornerHoverController {
             delete?(item)
             self?.relayoutAfterChange()
         }
+        // Every other action takes the user somewhere else — the editor, the clipboard, Finder —
+        // so the stack has done its job and must get out of the way. Without this it stayed
+        // floating on top of the very window it had just opened, and the only way to dismiss it
+        // was to go back and hover the corner again.
+        let annotate = actions.annotate
+        actions.annotate = { [weak self] item in
+            self?.hide()
+            annotate?(item)
+        }
+        let copy = actions.copy
+        actions.copy = { [weak self] item in
+            self?.hide()
+            copy?(item)
+        }
+        let reveal = actions.reveal
+        actions.reveal = { [weak self] item in
+            self?.hide()
+            reveal?(item)
+        }
         self.actions = actions
     }
 
@@ -98,15 +125,30 @@ public final class CornerHoverController {
         }
     }
 
-    public func install() {
-        guard isEnabled, hotPanel == nil else { return }
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        let frame = NSRect(
+    /// The trigger region: a strip up the left edge, from the very bottom of the display to a
+    /// little past the top of the Dock.
+    ///
+    /// It deliberately spans both sides of the Dock's top edge. A 4×4 box at `frame`'s corner —
+    /// what this used to be — sits *inside* the Dock strip whenever the Dock is at the bottom and
+    /// not hidden, so whether the trigger could be reached at all depended on whether the Dock was
+    /// on screen. The Dock is hidden in a fullscreen Space and shown in an ordinary one, which is
+    /// how the same corner worked on one Space and did nothing on the next.
+    ///
+    /// Anchoring to `frame` rather than `visibleFrame` keeps the true screen corner included, so
+    /// the pointer can still be thrown at it without aiming.
+    private static func hotFrame(on screen: NSScreen) -> NSRect {
+        let dockHeight = max(0, screen.visibleFrame.minY - screen.frame.minY)
+        return NSRect(
             x: screen.frame.minX,
             y: screen.frame.minY,
-            width: Self.hotZone,
-            height: Self.hotZone
+            width: hotWidth,
+            height: dockHeight + hotReachAboveDock
         )
+    }
+
+    public func install() {
+        guard isEnabled, hotPanel == nil else { return }
+        let frame = Self.hotFrame(on: NSScreen.main ?? NSScreen.screens[0])
         let panel = OverlayPanel(contentRect: frame, level: .statusBar)
         panel.ignoresMouseEvents = false
         panel.alphaValue = 0.01 // present for hit-testing, invisible to the eye
@@ -117,11 +159,41 @@ public final class CornerHoverController {
         panel.contentView = view
         panel.present()
         hotPanel = panel
+        observeScreenChanges()
+    }
+
+    /// The Dock can be resized, moved or hidden, and displays come and go, at any time. The frame
+    /// was previously computed once at launch and never revisited, so any of those left the
+    /// trigger somewhere the pointer could no longer reach.
+    private func observeScreenChanges() {
+        guard screenObserver == nil else { return }
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reframeHotZone() }
+        }
+    }
+
+    private func reframeHotZone() {
+        guard let hotPanel else { return }
+        hotPanel.setFrame(
+            Self.hotFrame(on: NSScreen.main ?? NSScreen.screens[0]),
+            display: false
+        )
+        // The tracking area is built from `bounds`, and a resize does not rebuild it on its own.
+        hotPanel.contentView?.updateTrackingAreas()
     }
 
     public func uninstall() {
         dwellTask?.cancel()
         closeTask?.cancel()
+        removeDismissMonitors()
+        if let screenObserver {
+            NotificationCenter.default.removeObserver(screenObserver)
+            self.screenObserver = nil
+        }
         hotPanel?.orderOut(nil)
         hotPanel = nil
         listPanel?.orderOut(nil)
@@ -185,10 +257,69 @@ public final class CornerHoverController {
                 }
         )
         panel.present()
+        installDismissMonitors()
     }
 
     private func hide() {
+        dwellTask?.cancel()
+        closeTask?.cancel()
+        removeDismissMonitors()
         listPanel?.orderOut(nil)
+    }
+
+    // MARK: Dismissal
+
+    /// Click anywhere else, or change Space, and the stack goes.
+    ///
+    /// Hover alone was the only way out, and it is not enough: the panel is non-activating, so
+    /// clicking another app never dismissed it, and a fast pointer can leave the panel without
+    /// SwiftUI ever reporting the exit. That left the stack pinned over everything with no way to
+    /// get rid of it short of hovering the corner again.
+    private func installDismissMonitors() {
+        guard dismissMonitors.isEmpty else { return }
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        // Clicks in any other app.
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismissOnOutsideClick() }
+        }) {
+            dismissMonitors.append(monitor)
+        }
+
+        // Clicks in our own app. A click on the stack itself is how the user picks a card, so it
+        // is the one that must not dismiss — the action wrappers handle closing in that case.
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            MainActor.assumeIsolated {
+                if event.window !== self?.listPanel { self?.dismissOnOutsideClick() }
+            }
+            return event
+        }) {
+            dismissMonitors.append(monitor)
+        }
+
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismissOnOutsideClick() }
+        }
+    }
+
+    private func removeDismissMonitors() {
+        dismissMonitors.forEach(NSEvent.removeMonitor)
+        dismissMonitors.removeAll()
+        if let spaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver)
+            self.spaceObserver = nil
+        }
+    }
+
+    private func dismissOnOutsideClick() {
+        // A drag out of the stack starts with a mouse-down on another surface being the drop
+        // target; closing mid-flight would cancel it.
+        guard !dragging else { return }
+        hide()
     }
 
     private func existingListPanel(size: CGSize) -> OverlayPanel {

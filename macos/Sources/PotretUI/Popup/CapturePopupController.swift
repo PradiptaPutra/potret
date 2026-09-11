@@ -33,6 +33,7 @@ public final class CapturePopupController {
     private var hovering = false
     /// True while a drag started from the preview is still in flight.
     private var dragging = false
+    private var dismissMonitors: [Any] = []
     private var remaining: Duration = CapturePopupController.lifetime
 
     public init() {}
@@ -55,6 +56,13 @@ public final class CapturePopupController {
         state.actions = actions
         state.preview = PopupPreview(image: image, pixelSize: pixelSize, progress: 1)
         remaining = Self.lifetime
+        // Both flags pause the countdown, and neither is reliably cleared by the event that set
+        // it: SwiftUI does not deliver `onHover(false)` when a window is ordered out from under
+        // the pointer, which is exactly what clicking Copy does. Left set, the next popup starts
+        // with its countdown already paused and never dismisses on its own. Start every
+        // presentation from a known state rather than trusting the exit event to arrive.
+        hovering = false
+        dragging = false
 
         let panel = existingPanel()
         panel.setFrame(
@@ -66,6 +74,7 @@ public final class CapturePopupController {
         installContent()
         panel.present()
         startCountdown()
+        installDismissMonitors()
     }
 
     /// Replace the action bar with a short confirmation, then dismiss.
@@ -82,8 +91,51 @@ public final class CapturePopupController {
     public func dismiss() {
         countdown?.cancel()
         countdown = nil
+        removeDismissMonitors()
+        hovering = false
+        dragging = false
         panel?.orderOut(nil)
         state.preview = nil
+    }
+
+    // MARK: Click-outside dismissal
+
+    /// Click anywhere else and the popup goes.
+    ///
+    /// The countdown was the only way out other than the buttons, and a paused countdown meant no
+    /// way out at all. A click elsewhere is an unambiguous "I am done with this" and does not
+    /// depend on any timer still running.
+    private func installDismissMonitors() {
+        guard dismissMonitors.isEmpty else { return }
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismissOnOutsideClick() }
+        }) {
+            dismissMonitors.append(monitor)
+        }
+
+        // A click on the popup is how the user reaches Copy or Save, so that one must not dismiss.
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
+            MainActor.assumeIsolated {
+                if event.window !== self?.panel { self?.dismissOnOutsideClick() }
+            }
+            return event
+        }) {
+            dismissMonitors.append(monitor)
+        }
+    }
+
+    private func removeDismissMonitors() {
+        dismissMonitors.forEach(NSEvent.removeMonitor)
+        dismissMonitors.removeAll()
+    }
+
+    private func dismissOnOutsideClick() {
+        // A drag out of the preview begins with the pointer down elsewhere as the drop lands;
+        // closing mid-flight would cancel it.
+        guard !dragging else { return }
+        dismiss()
     }
 
     /// Hold the popup open for a drag, and release once no button is down.
