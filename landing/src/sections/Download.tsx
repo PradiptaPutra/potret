@@ -1,4 +1,5 @@
 import CopyLine from "../components/CopyLine";
+import StarButton from "../components/StarButton";
 import { BREW, DMG, RELEASES, VERSION } from "../lib/site";
 
 /**
@@ -37,6 +38,14 @@ export default function Download() {
               Homebrew is the cleaner path — it clears the quarantine flag for
               you, so there is no Gatekeeper prompt.
             </p>
+          </div>
+
+          <div className="mx-auto mt-8 flex max-w-[52ch] flex-col items-center gap-3 border-t border-fog pt-8">
+            <p className="text-[14px] text-slate">
+              No account, no upsell, nothing to buy. If it earns a place in your
+              menu bar, a star is the whole price.
+            </p>
+            <StarButton size="large" />
           </div>
 
           <details className="mx-auto mt-8 max-w-[52ch] text-left">

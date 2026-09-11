@@ -1,5 +1,6 @@
-import { DMG, REPO } from "../lib/site";
+import { DMG } from "../lib/site";
 import { Logo } from "./Logo";
+import StarButton from "./StarButton";
 
 // Only sections that exist at every moment. The mode panel swaps its content
 // in place, so #record and #trim are not addressable — linking to them from
@@ -40,12 +41,7 @@ export default function Nav() {
 
         <span className="mx-1 hidden h-5 w-px bg-fog sm:block" aria-hidden="true" />
 
-        <a
-          href={REPO}
-          className="hidden rounded-full px-3 py-1.5 text-[14px] font-medium text-slate transition-colors hover:bg-mist hover:text-ink sm:block"
-        >
-          GitHub
-        </a>
+        <StarButton size="compact" />
         <a href={DMG} className="btn btn-primary ml-1 !px-4 !py-1.5 !text-[14px]">
           Download
         </a>
