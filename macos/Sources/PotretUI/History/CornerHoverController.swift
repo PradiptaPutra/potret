@@ -27,6 +27,7 @@ public final class CornerHoverController {
     private var dwellTask: Task<Void, Never>?
     private var closeTask: Task<Void, Never>?
     private var screenObserver: (any NSObjectProtocol)?
+    private var hotSpaceObserver: (any NSObjectProtocol)?
     private var spaceObserver: (any NSObjectProtocol)?
     private var dismissMonitors: [Any] = []
     private let model: HistoryModel
@@ -160,6 +161,7 @@ public final class CornerHoverController {
         panel.present()
         hotPanel = panel
         observeScreenChanges()
+        Log.ui.info("corner hot zone: installed at \(NSStringFromRect(frame), privacy: .public) tracking=\(view.trackingAreas.count)")
     }
 
     /// The Dock can be resized, moved or hidden, and displays come and go, at any time. The frame
@@ -172,18 +174,32 @@ public final class CornerHoverController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reframeHotZone() }
+            MainActor.assumeIsolated { self?.reframeHotZone(reason: "screen parameters") }
+        }
+        // A Space switch leaves the panel on screen but with stale window-server state: the
+        // tracking area then reports entered/exited in rapid alternation with the pointer still,
+        // and stays that way until the panel is ordered again. Anything that re-orders the app's
+        // windows — opening the main window, say — happened to heal it, which is why the symptom
+        // looked Space-specific. Re-order it ourselves, every time.
+        hotSpaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reframeHotZone(reason: "Space change") }
         }
     }
 
-    private func reframeHotZone() {
+    private func reframeHotZone(reason: String) {
         guard let hotPanel else { return }
         hotPanel.setFrame(
             Self.hotFrame(on: NSScreen.main ?? NSScreen.screens[0]),
             display: false
         )
+        hotPanel.orderFrontRegardless()
         // The tracking area is built from `bounds`, and a resize does not rebuild it on its own.
         hotPanel.contentView?.updateTrackingAreas()
+        Log.ui.info("corner hot zone: reframed (\(reason, privacy: .public)) at \(NSStringFromRect(hotPanel.frame), privacy: .public)")
     }
 
     public func uninstall() {
@@ -193,6 +209,10 @@ public final class CornerHoverController {
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
             self.screenObserver = nil
+        }
+        if let hotSpaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(hotSpaceObserver)
+            self.hotSpaceObserver = nil
         }
         hotPanel?.orderOut(nil)
         hotPanel = nil
@@ -204,23 +224,39 @@ public final class CornerHoverController {
 
     private func scheduleShow() {
         closeTask?.cancel()
-        dwellTask?.cancel()
+        guard dwellTask == nil else { return }
         dwellTask = Task { [weak self] in
             try? await Task.sleep(for: Self.dwell)
+            guard let self else { return }
+            self.dwellTask = nil
             guard !Task.isCancelled else { return }
-            self?.show()
+            // Decide on where the pointer actually is, not on the last tracking event. After a
+            // Space switch the tracking area flaps entered/exited every few milliseconds with the
+            // pointer perfectly still, and letting each exit cancel the dwell meant the stack could
+            // never open again until something re-ordered the panel.
+            let inside = self.pointerInHotZone
+            Log.ui.info("corner dwell: pointer=\(NSStringFromPoint(NSEvent.mouseLocation), privacy: .public) hot=\(NSStringFromRect(self.hotPanel?.frame ?? .zero), privacy: .public) onScreen=\(self.hotPanel?.isVisible ?? false) inside=\(inside)")
+            guard inside else { return }
+            self.show()
         }
+    }
+
+    private var pointerInHotZone: Bool {
+        guard let hotPanel else { return false }
+        return hotPanel.frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
     }
 
     private func scheduleHide() {
         // Never pull the panel out from under an in-flight drag.
         guard !dragging else { return }
-        dwellTask?.cancel()
         closeTask?.cancel()
         closeTask = Task { [weak self] in
             try? await Task.sleep(for: Self.closeDelay)
-            guard !Task.isCancelled else { return }
-            self?.hide()
+            guard let self, !Task.isCancelled else { return }
+            // Same ground truth as showing: a spurious exit with the pointer still in the zone
+            // is not a reason to close.
+            guard !self.pointerInHotZone else { return }
+            self.hide()
         }
     }
 
@@ -234,6 +270,7 @@ public final class CornerHoverController {
 
     private func show() {
         model.load(limit: CornerHoverView.itemCount)
+        Log.ui.info("corner stack: show, \(self.model.items.count) item(s)")
         // Nothing to show is not worth a panel. The Tauri version presented an empty 260×480
         // window in this case — an invisible but fully clickable rectangle over the corner.
         guard !model.items.isEmpty else { return }
@@ -258,10 +295,13 @@ public final class CornerHoverController {
         )
         panel.present()
         installDismissMonitors()
+        Log.ui.info("corner stack: presented at \(NSStringFromRect(panel.frame), privacy: .public) visible=\(panel.isVisible)")
     }
 
     private func hide() {
+        Log.ui.info("corner stack: hide")
         dwellTask?.cancel()
+        dwellTask = nil
         closeTask?.cancel()
         removeDismissMonitors()
         listPanel?.orderOut(nil)
@@ -353,8 +393,14 @@ public final class CornerHoverController {
             )
         }
 
-        override func mouseEntered(with event: NSEvent) { onEnter?() }
-        override func mouseExited(with event: NSEvent) { onExit?() }
+        override func mouseEntered(with event: NSEvent) {
+            Log.ui.info("corner hot zone: entered")
+            onEnter?()
+        }
+        override func mouseExited(with event: NSEvent) {
+            Log.ui.info("corner hot zone: exited")
+            onExit?()
+        }
     }
 }
 

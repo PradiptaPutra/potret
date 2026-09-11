@@ -19,6 +19,17 @@ interface Release {
 // pre-rewrite releases, lives on GitHub.
 const RELEASES_LOG: Release[] = [
   {
+    version: "0.4.3",
+    date: "11 Sep 2026",
+    title: "Corner hover survives a Space switch",
+    changes: [
+      {
+        kind: "fixed",
+        text: "Hovering the corner stopped working after switching Space, and stayed dead until something happened to re-order the app's windows — which made it look like one desktop was broken and another fine. The trigger now re-arms itself on every Space change, and opens on where the pointer actually is rather than on flapping tracking events.",
+      },
+    ],
+  },
+  {
     version: "0.4.2",
     date: "11 Sep 2026",
     title: "Panels that go away",

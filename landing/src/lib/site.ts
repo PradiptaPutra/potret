@@ -2,7 +2,7 @@
  * Everything about the current release in one place, so a version bump is one
  * edit rather than a search across sections.
  */
-export const VERSION = "0.4.2";
+export const VERSION = "0.4.3";
 export const REPO = "https://github.com/PradiptaPutra/potret";
 export const DMG = `${REPO}/releases/download/v${VERSION}/Potret_${VERSION}_universal.dmg`;
 export const RELEASES = `${REPO}/releases/latest`;
